@@ -1,3 +1,5 @@
+<div align='center'>
+
 # LocalGenBI-Agent
 
 ![Status](https://img.shields.io/badge/Status-POC%20%2F%20MVP-yellow)
@@ -6,7 +8,7 @@
 ![LangGraph](https://img.shields.io/badge/LangGraph-0.1.19-8A2BE2)
 ![Chainlit](https://img.shields.io/badge/Chainlit-1.0+-F97316)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791?logo=postgresql&logoColor=white)
-![Ollama](https://img.shields.io/badge/Ollama-Llama-3--8B-black)
+![Ollama](https://img.shields.io/badge/Ollama-Llama--3--8B-black?logo=ollama&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-22C55E)
 
@@ -17,6 +19,8 @@
 > Read [Limitations](#limitations) before deploying outside your local machine.
 
 *A locally-running generative BI agent that translates natural-language questions into SQL, routes them to the correct isolated PostgreSQL database, executes validated queries, and returns an analytical answer with an optional chart — all without sending data to any cloud API. Inference runs entirely on-device via Ollama (DeepSeek-R1 8B).*
+
+</div>
 
 ---
 
@@ -117,60 +121,76 @@ The system uses a five-node LangGraph state machine where each node calls either
 
 ```mermaid
 graph TB
-    subgraph Client["Client"]
-        U["User\n(Browser)"]
+    subgraph Client["🌐  Client"]
+        U["👤 User<br/>(Browser)"]
     end
 
-    subgraph FE["Frontend  :8000"]
-        CL["Chainlit\nfrontend/app.py"]
+    subgraph FE["⚡  Frontend  ·  :8000"]
+        CL["Chainlit<br/><code>frontend/app.py</code>"]
     end
 
-    subgraph BE["Backend  :8001"]
-        FA["FastAPI\nbackend/main.py"]
-        ORC["LangGraph Orchestrator\norchestrator.py"]
-        GRD["Guardrails\nguardrails/"]
-        FEAT["Features\nfeatures/"]
+    subgraph BE["🔧  Backend  ·  :8001"]
+        FA["FastAPI<br/><code>backend/main.py</code>"]
+        ORC["LangGraph Orchestrator<br/><code>backend/orchestrator.py</code>"]
+        GRD["🛡 Guardrails<br/><code>guardrails/</code>"]
+        FEAT["🔌 Features<br/><code>features/</code>"]
     end
 
-    subgraph LLM_SVC["LLM Service  :11434"]
-        OL["Ollama\nDeepSeek-R1 8B"]
+    subgraph LLM_SVC["🤖  LLM Service  ·  :11434"]
+        OL["Ollama<br/>DeepSeek-R1 · 8B"]
     end
 
-    subgraph GWS["DB Gateways  (db_gateway/)"]
-        GH["gateway-health  :3001"]
-        GF["gateway-finance :3002"]
-        GS["gateway-sales   :3003"]
-        GI["gateway-iot     :3004"]
+    subgraph GWS["🔀  DB Gateways  ·  <code>db_gateway/</code>"]
+        GH["gateway-health<br/>:3001"]
+        GF["gateway-finance<br/>:3002"]
+        GS["gateway-sales<br/>:3003"]
+        GI["gateway-iot<br/>:3004"]
     end
 
-    subgraph DBS["PostgreSQL Instances  :5432 each"]
+    subgraph DBS["🗄  PostgreSQL  ·  :5432 each"]
         PH[("health_db")]
         PF[("finance_db")]
         PS[("sales_db")]
         PI[("iot_db")]
     end
 
-    U -->|"HTTP"| CL
-    CL -->|"POST /api/query"| FA
-    FA --> ORC
-    ORC --> GRD
-    ORC -->|"POST /gateway"| GH
-    ORC -->|"POST /gateway"| GF
-    ORC -->|"POST /gateway"| GS
-    ORC -->|"POST /gateway"| GI
-    ORC -->|"HTTP /api/chat"| OL
-    ORC --> FEAT
-    GH -->|"asyncpg"| PH
-    GF -->|"asyncpg"| PF
-    GS -->|"asyncpg"| PS
-    GI -->|"asyncpg"| PI
+    U      -->|"HTTP"| CL
+    CL     -->|"POST /api/query"| FA
+    FA     --> ORC
+    ORC    --> GRD
+    ORC    --> FEAT
+    ORC    -->|"HTTP /api/chat"| OL
+    ORC    -->|"POST /gateway"| GH
+    ORC    -->|"POST /gateway"| GF
+    ORC    -->|"POST /gateway"| GS
+    ORC    -->|"POST /gateway"| GI
+    GH     -->|"asyncpg"| PH
+    GF     -->|"asyncpg"| PF
+    GS     -->|"asyncpg"| PS
+    GI     -->|"asyncpg"| PI
 
-    style Client fill:#0D1117,stroke:#484F58,color:#E6EDF3
-    style FE fill:#0D1117,stroke:#00D4AA,color:#E6EDF3
-    style BE fill:#0D1117,stroke:#1F6FEB,color:#E6EDF3
-    style LLM_SVC fill:#0D1117,stroke:#8B949E,color:#E6EDF3
-    style GWS fill:#0D1117,stroke:#21262D,color:#E6EDF3
-    style DBS fill:#0D1117,stroke:#21262D,color:#E6EDF3
+    style Client   fill:#0D1117,stroke:#484F58,color:#E6EDF3
+    style FE       fill:#0D1117,stroke:#00D4AA,color:#E6EDF3
+    style BE       fill:#0D1117,stroke:#1F6FEB,color:#E6EDF3
+    style LLM_SVC  fill:#0D1117,stroke:#BC8CFF,color:#E6EDF3
+    style GWS      fill:#0D1117,stroke:#D29922,color:#E6EDF3
+    style DBS      fill:#0D1117,stroke:#3FB950,color:#E6EDF3
+
+    style U    fill:#161B22,stroke:#484F58,color:#E6EDF3
+    style CL   fill:#161B22,stroke:#00D4AA,color:#E6EDF3
+    style FA   fill:#161B22,stroke:#1F6FEB,color:#E6EDF3
+    style ORC  fill:#161B22,stroke:#1F6FEB,color:#E6EDF3
+    style GRD  fill:#161B22,stroke:#F85149,color:#E6EDF3
+    style FEAT fill:#161B22,stroke:#1F6FEB,color:#E6EDF3
+    style OL   fill:#161B22,stroke:#BC8CFF,color:#E6EDF3
+    style GH   fill:#161B22,stroke:#D29922,color:#E6EDF3
+    style GF   fill:#161B22,stroke:#D29922,color:#E6EDF3
+    style GS   fill:#161B22,stroke:#D29922,color:#E6EDF3
+    style GI   fill:#161B22,stroke:#D29922,color:#E6EDF3
+    style PH   fill:#161B22,stroke:#3FB950,color:#E6EDF3
+    style PF   fill:#161B22,stroke:#3FB950,color:#E6EDF3
+    style PS   fill:#161B22,stroke:#3FB950,color:#E6EDF3
+    style PI   fill:#161B22,stroke:#3FB950,color:#E6EDF3
 ```
 
 ---
@@ -180,56 +200,58 @@ graph TB
 ```mermaid
 sequenceDiagram
     autonumber
-    actor U as User
-    participant CL as Chainlit :8000
-    participant FA as FastAPI :8001
-    participant ORC as Orchestrator
-    participant LLM as Ollama (DeepSeek-R1)
-    participant GW as DB Gateway :300x
-    participant DB as PostgreSQL
+    actor U  as 👤 User
+    participant CL  as Chainlit<br/>:8000
+    participant FA  as FastAPI<br/>:8001
+    participant ORC as Orchestrator<br/>(LangGraph)
+    participant LLM as Ollama<br/>DeepSeek-R1 8B
+    participant GW  as DB Gateway<br/>:300x
+    participant DB  as PostgreSQL
 
-    U->>CL: Natural language query
-    CL->>FA: POST /api/query {query, session_id}
-    FA->>ORC: process_query()
+    U   ->>  CL  : Natural language query
+    CL  ->>  FA  : POST /api/query · {query, session_id}
+    FA  ->>  ORC : process_query()
 
-    Note over ORC: PII-redact raw query<br/>(before any LLM call)
+    Note over ORC : 🛡 PII-redact input before any LLM call
 
-    ORC->>LLM: supervisor_agent — which database?
-    LLM-->>ORC: ["sales"]  (JSON array)
+    ORC ->>  LLM : supervisor_agent — which database(s)?
+    LLM -->> ORC : ["sales"]  (JSON array)
 
-    Note over ORC: Parse + validate LLM routing JSON<br/>Fallback: keywords → default DB
+    Note over ORC : Parse & validate routing JSON<br/>Fallback: keywords → default DB
 
-    ORC->>GW: POST /gateway  {method: get_schema}
-    GW->>DB: information_schema introspection (read-only)
-    DB-->>GW: table + column metadata
-    GW-->>ORC: schema JSON
+    ORC ->>  GW  : POST /gateway · {method: get_schema}
+    GW  ->>  DB  : information_schema introspection
+    DB  -->> GW  : table + column metadata
+    GW  -->> ORC : schema JSON
 
-    ORC->>LLM: sql_agent — generate SQL (schema + domain prompt + query)
-    LLM-->>ORC: SQL + possible think blocks
+    ORC ->>  LLM : sql_agent — generate SQL<br/>(schema + domain prompt + query)
+    LLM -->> ORC : raw SQL + possible &lt;think&gt; blocks
 
-    Note over ORC: Strip think-tags + markdown fences<br/>SQLValidator: keyword blocklist<br/>SQLValidator: prohibited patterns<br/>SQLValidator: inject LIMIT<br/>Orchestrator: prohibited pattern (2nd check)
+    Note over ORC : Strip think-tags & markdown fences<br/>SQLValidator → keyword blocklist<br/>SQLValidator → prohibited patterns<br/>SQLValidator → inject LIMIT<br/>Orchestrator → 2nd pattern check
 
-    alt SQL invalid — retry up to MAX_AGENT_RETRIES
-        ORC->>LLM: sql_agent (prev error in context)
-        LLM-->>ORC: corrected SQL
+    alt SQL invalid — retry ≤ MAX_AGENT_RETRIES
+        ORC ->>  LLM : sql_agent with previous error in context
+        LLM -->> ORC : corrected SQL
     end
 
-    ORC->>GW: POST /gateway  {method: query_database, sql: ...}
-    GW->>DB: asyncpg parameterised fetch
-    DB-->>GW: raw rows
-    Note over GW: Strip BLOCKED_OUTPUT_COLUMNS<br/>Serialize PostgreSQL types → JSON<br/>PII-redact all string values
-    GW-->>ORC: safe JSON rows
+    ORC ->>  GW  : POST /gateway · {method: query_database, sql}
+    GW  ->>  DB  : asyncpg parameterised fetch
+    DB  -->> GW  : raw rows
 
-    Note over ORC: Strip BLOCKED_OUTPUT_COLUMNS (2nd pass)<br/>DataAnalyzer: compute metrics
+    Note over GW  : Strip BLOCKED_OUTPUT_COLUMNS<br/>Serialise PostgreSQL types → JSON<br/>PII-redact string values
 
-    ORC->>LLM: analyst_agent — generate insight (data + metrics + query)
-    LLM-->>ORC: natural language answer
+    GW  -->> ORC : safe JSON rows
 
-    Note over ORC: Strip think-tags<br/>PII-redact answer text<br/>Auto-visualize with matplotlib
+    Note over ORC : Strip BLOCKED_OUTPUT_COLUMNS (2nd pass)<br/>DataAnalyzer → compute summary metrics
 
-    ORC-->>FA: {answer, sql, data, visualization, metrics}
-    FA-->>CL: QueryResponse JSON
-    CL-->>U: Answer + inline chart + download buttons
+    ORC ->>  LLM : analyst_agent — generate insight<br/>(data table + metrics + question)
+    LLM -->> ORC : natural language answer
+
+    Note over ORC : Strip think-tags<br/>PII-redact answer<br/>Auto-visualise with matplotlib
+
+    ORC -->> FA  : {answer, sql, data, visualization, metrics}
+    FA  -->> CL  : QueryResponse JSON
+    CL  -->> U   : Answer + inline chart + export buttons
 ```
 
 ---
@@ -238,22 +260,23 @@ sequenceDiagram
 
 ```mermaid
 stateDiagram-v2
-    direction LR
-    [*] --> supervisor_agent : query + session_id
+    direction TB
 
-    supervisor_agent --> fetch_schema : planned_databases set
+    [*]              --> supervisor_agent  : query + session_id
 
-    fetch_schema --> sql_agent : current_schema loaded
+    supervisor_agent --> fetch_schema      : planned_databases resolved
 
-    sql_agent --> execute_sql : sql valid · errors cleared
-    sql_agent --> sql_agent : invalid SQL · retry_count < MAX_RETRIES
-    sql_agent --> analyst_agent : retries exhausted
+    fetch_schema     --> sql_agent         : schema loaded
 
-    execute_sql --> analyst_agent : data returned · no errors
-    execute_sql --> sql_agent : DB error · retry_count < MAX_RETRIES
-    execute_sql --> analyst_agent : retries exhausted
+    sql_agent        --> execute_sql       : ✅ SQL valid
+    sql_agent        --> sql_agent         : ❌ invalid SQL · retry_count < MAX_RETRIES
+    sql_agent        --> analyst_agent     : ❌ retries exhausted
 
-    analyst_agent --> [*] : answer + metrics + visualization
+    execute_sql      --> analyst_agent     : ✅ rows returned
+    execute_sql      --> sql_agent         : ❌ DB error · retry_count < MAX_RETRIES
+    execute_sql      --> analyst_agent     : ❌ retries exhausted
+
+    analyst_agent    --> [*]               : answer + metrics + visualization
 ```
 
 **State dict fields passed between nodes:**
