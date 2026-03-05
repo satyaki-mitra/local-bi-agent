@@ -1,0 +1,314 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# LocalGenBI-Agent — Docker Compose
+#
+# Services:
+#   ollama           : LLM inference server (DeepSeek-R1)
+#   postgres-health  : Health domain PostgreSQL database
+#   postgres-finance : Finance domain PostgreSQL database
+#   postgres-sales   : Sales domain PostgreSQL database
+#   postgres-iot     : IoT domain PostgreSQL database
+#   gateway-health   : Health DB gateway server (aiohttp, :3001)
+#   gateway-finance  : Finance DB gateway server (aiohttp, :3002)
+#   gateway-sales    : Sales DB gateway server (aiohttp, :3003)
+#   gateway-iot      : IoT DB gateway server (aiohttp, :3004)
+#   backend          : FastAPI API + LangGraph orchestrator (:8001)
+#   frontend         : Chainlit chat UI (:8000)
+#
+# Start everything: docker compose up -d
+#
+# Pull model after first start: docker exec localgenbi-ollama ollama pull deepseek-r1:8b
+#
+# Tear down (preserving volumes): docker compose down
+#
+# Tear down including all data: docker compose down -v
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # LLM
+  ollama:
+    image          : ollama/ollama:latest
+    container_name : localgenbi-ollama
+    restart        : unless-stopped
+    volumes:
+      - ollama_models:/root/.ollama
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    healthcheck:
+      test        : ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval    : 30s
+      timeout     : 10s
+      retries     : 5
+      start_period: 60s
+    networks:
+      - localgenbi
+
+
+  # Databases
+  postgres-health:
+    image          : postgres:15-alpine
+    container_name : localgenbi-postgres-health
+    restart        : unless-stopped
+    environment:
+      POSTGRES_DB       : ${DB_HEALTH_NAME:-health_db}
+      POSTGRES_USER     : ${DB_ADMIN_USER:-postgres}
+      POSTGRES_PASSWORD : ${DB_ADMIN_PASSWORD}
+    volumes:
+      - pg_health:/var/lib/postgresql/data
+    healthcheck:
+      test        : ["CMD-SHELL", "pg_isready -U ${DB_ADMIN_USER:-postgres} -d ${DB_HEALTH_NAME:-health_db}"]
+      interval    : 10s
+      timeout     : 5s
+      retries     : 10
+      start_period: 20s
+    networks:
+      - localgenbi
+
+  postgres-finance:
+    image          : postgres:15-alpine
+    container_name : localgenbi-postgres-finance
+    restart        : unless-stopped
+    environment:
+      POSTGRES_DB       : ${DB_FINANCE_NAME:-finance_db}
+      POSTGRES_USER     : ${DB_ADMIN_USER:-postgres}
+      POSTGRES_PASSWORD : ${DB_ADMIN_PASSWORD}
+    volumes:
+      - pg_finance:/var/lib/postgresql/data
+    healthcheck:
+      test        : ["CMD-SHELL", "pg_isready -U ${DB_ADMIN_USER:-postgres} -d ${DB_FINANCE_NAME:-finance_db}"]
+      interval    : 10s
+      timeout     : 5s
+      retries     : 10
+      start_period: 20s
+    networks:
+      - localgenbi
+
+  postgres-sales:
+    image          : postgres:15-alpine
+    container_name : localgenbi-postgres-sales
+    restart        : unless-stopped
+    environment:
+      POSTGRES_DB       : ${DB_SALES_NAME:-sales_db}
+      POSTGRES_USER     : ${DB_ADMIN_USER:-postgres}
+      POSTGRES_PASSWORD : ${DB_ADMIN_PASSWORD}
+    volumes:
+      - pg_sales:/var/lib/postgresql/data
+    healthcheck:
+      test        : ["CMD-SHELL", "pg_isready -U ${DB_ADMIN_USER:-postgres} -d ${DB_SALES_NAME:-sales_db}"]
+      interval    : 10s
+      timeout     : 5s
+      retries     : 10
+      start_period: 20s
+    networks:
+      - localgenbi
+
+  postgres-iot:
+    image          : postgres:15-alpine
+    container_name : localgenbi-postgres-iot
+    restart        : unless-stopped
+    environment:
+      POSTGRES_DB       : ${DB_IOT_NAME:-iot_db}
+      POSTGRES_USER     : ${DB_ADMIN_USER:-postgres}
+      POSTGRES_PASSWORD : ${DB_ADMIN_PASSWORD}
+    volumes:
+      - pg_iot:/var/lib/postgresql/data
+    healthcheck:
+      test        : ["CMD-SHELL", "pg_isready -U ${DB_ADMIN_USER:-postgres} -d ${DB_IOT_NAME:-iot_db}"]
+      interval    : 10s
+      timeout     : 5s
+      retries     : 10
+      start_period: 20s
+    networks:
+      - localgenbi
+
+
+  # DB Gateway servers 
+  gateway-health:
+    build:
+      context : .
+      target  : backend
+    container_name : localgenbi-gateway-health
+    restart        : unless-stopped
+    command        : ["python", "-m", "db_gateway.gateway_factory", "health"]
+    env_file       : .env
+    environment:
+      DB_BASE_HOST : gateway-health
+    depends_on:
+      postgres-health:
+        condition: service_healthy
+    ports:
+      - "${GATEWAY_HEALTH_PORT:-3001}:3001"
+    healthcheck:
+      test        : ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval    : 15s
+      timeout     : 5s
+      retries     : 5
+      start_period: 20s
+    networks:
+      - localgenbi
+
+  gateway-finance:
+    build:
+      context : .
+      target  : backend
+    container_name : localgenbi-gateway-finance
+    restart        : unless-stopped
+    command        : ["python", "-m", "db_gateway.gateway_factory", "finance"]
+    env_file       : .env
+    environment:
+      DB_BASE_HOST : gateway-finance
+    depends_on:
+      postgres-finance:
+        condition: service_healthy
+    ports:
+      - "${GATEWAY_FINANCE_PORT:-3002}:3002"
+    healthcheck:
+      test        : ["CMD", "curl", "-f", "http://localhost:3002/health"]
+      interval    : 15s
+      timeout     : 5s
+      retries     : 5
+      start_period: 20s
+    networks:
+      - localgenbi
+
+  gateway-sales:
+    build:
+      context : .
+      target  : backend
+    container_name : localgenbi-gateway-sales
+    restart        : unless-stopped
+    command        : ["python", "-m", "db_gateway.gateway_factory", "sales"]
+    env_file       : .env
+    environment:
+      DB_BASE_HOST : gateway-sales
+    depends_on:
+      postgres-sales:
+        condition: service_healthy
+    ports:
+      - "${GATEWAY_SALES_PORT:-3003}:3003"
+    healthcheck:
+      test        : ["CMD", "curl", "-f", "http://localhost:3003/health"]
+      interval    : 15s
+      timeout     : 5s
+      retries     : 5
+      start_period: 20s
+    networks:
+      - localgenbi
+
+  gateway-iot:
+    build:
+      context : .
+      target  : backend
+    container_name : localgenbi-gateway-iot
+    restart        : unless-stopped
+    command        : ["python", "-m", "db_gateway.gateway_factory", "iot"]
+    env_file       : .env
+    environment:
+      DB_BASE_HOST : gateway-iot
+    depends_on:
+      postgres-iot:
+        condition: service_healthy
+    ports:
+      - "${GATEWAY_IOT_PORT:-3004}:3004"
+    healthcheck:
+      test        : ["CMD", "curl", "-f", "http://localhost:3004/health"]
+      interval    : 15s
+      timeout     : 5s
+      retries     : 5
+      start_period: 20s
+    networks:
+      - localgenbi
+
+
+  # Backend
+  backend:
+    build:
+      context : .
+      target  : backend
+    container_name : localgenbi-backend
+    restart        : unless-stopped
+    env_file       : .env
+    environment:
+      # The backend must reach each gateway by its Docker service hostname.
+      # DB_BASE_HOST is set generically here — the orchestrator's HOST_MAP
+      # should be configured to use per-domain hostnames if cross-DB is enabled.
+      DB_BASE_HOST     : gateway-health
+      BACKEND_HOST     : backend
+      ALLOWED_IMPORTS  : "pandas,numpy,matplotlib"
+    depends_on:
+      ollama:
+        condition: service_healthy
+      gateway-health:
+        condition: service_healthy
+      gateway-finance:
+        condition: service_healthy
+      gateway-sales:
+        condition: service_healthy
+      gateway-iot:
+        condition: service_healthy
+    ports:
+      - "${FASTAPI_PORT:-8001}:8001"
+    volumes:
+      - exports:/app/temp/exports
+    healthcheck:
+      test        : ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval    : 20s
+      timeout     : 10s
+      retries     : 5
+      start_period: 30s
+    networks:
+      - localgenbi
+
+
+  # Frontend 
+  frontend:
+    build:
+      context : .
+      target  : frontend
+    container_name : localgenbi-frontend
+    restart        : unless-stopped
+    env_file       : .env
+    environment:
+      BACKEND_HOST             : backend
+      CHAINLIT_ALLOW_ORIGINS   : "http://localhost:${CHAINLIT_PORT:-8000}"
+      CHAINLIT_TEMP_EXPORT_DIR : /tmp/localgenbi_exports
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${CHAINLIT_PORT:-8000}:8000"
+    volumes:
+      - /tmp/localgenbi_exports:/tmp/localgenbi_exports
+    healthcheck:
+      test        : ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000')"]
+      interval    : 20s
+      timeout     : 10s
+      retries     : 3
+      start_period: 20s
+    networks:
+      - localgenbi
+
+
+# Volumes
+volumes:
+  ollama_models:
+    name: localgenbi_ollama_models
+  pg_health:
+    name: localgenbi_pg_health
+  pg_finance:
+    name: localgenbi_pg_finance
+  pg_sales:
+    name: localgenbi_pg_sales
+  pg_iot:
+    name: localgenbi_pg_iot
+  exports:
+    name: localgenbi_exports
+
+
+# Networks
+networks:
+  localgenbi:
+    name   : localgenbi_network
+    driver : bridge

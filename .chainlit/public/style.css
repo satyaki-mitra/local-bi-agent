@@ -1,0 +1,324 @@
+/* ================================================================
+   LocalGenBI — Premium Chat UI Stylesheet
+   Injected via Chainlit's custom CSS support (.chainlit/public/style.css)
+   ================================================================ */
+
+/* ── Google Fonts ──────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Sora:wght@300;400;500;600;700&display=swap');
+
+/* ── CSS Custom Properties (extend Chainlit theme) ─────────── */
+:root {
+  --brand-teal:       #00D4AA;
+  --brand-teal-glow:  rgba(0, 212, 170, 0.15);
+  --brand-blue:       #1F6FEB;
+  --bg-base:          #0D1117;
+  --bg-surface:       #161B22;
+  --bg-elevated:      #1C2128;
+  --border-subtle:    #21262D;
+  --border-focus:     #00D4AA;
+  --text-primary:     #E6EDF3;
+  --text-secondary:   #8B949E;
+  --text-muted:       #484F58;
+  --radius-sm:        6px;
+  --radius-md:        10px;
+  --radius-lg:        16px;
+  --shadow-card:      0 4px 24px rgba(0, 0, 0, 0.4);
+  --shadow-glow:      0 0 20px rgba(0, 212, 170, 0.12);
+  --font-ui:          'Sora', sans-serif;
+  --font-mono:        'JetBrains Mono', monospace;
+  --transition-fast:  140ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-mid:   240ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Base Typography ────────────────────────────────────────── */
+body,
+.MuiTypography-root,
+.MuiButton-root,
+input,
+textarea {
+  font-family : var(--font-ui) !important;
+  letter-spacing: -0.01em;
+}
+
+code,
+pre,
+.MuiTypography-root code {
+  font-family : var(--font-mono) !important;
+}
+
+/* ── App Shell ──────────────────────────────────────────────── */
+#root,
+.MuiBox-root[class*="main"] {
+  background : var(--bg-base) !important;
+}
+
+/* ── Header / Sidebar ───────────────────────────────────────── */
+header,
+.MuiAppBar-root {
+  background     : var(--bg-surface) !important;
+  border-bottom  : 1px solid var(--border-subtle) !important;
+  backdrop-filter: blur(12px) !important;
+  box-shadow     : none !important;
+}
+
+/* Brand title in header */
+header .MuiTypography-h6,
+header [class*="title"] {
+  font-weight   : 600 !important;
+  font-size     : 1rem !important;
+  color         : var(--text-primary) !important;
+  letter-spacing: -0.02em !important;
+}
+
+/* ── Chat Container ─────────────────────────────────────────── */
+.MuiContainer-root[class*="chat"] {
+  max-width: 860px !important;
+  padding  : 0 1.5rem !important;
+}
+
+/* ── Message Bubbles ────────────────────────────────────────── */
+
+/* All messages */
+[class*="message"],
+.MuiPaper-root[class*="message"] {
+  border-radius : var(--radius-md) !important;
+  transition    : transform var(--transition-fast), box-shadow var(--transition-fast) !important;
+}
+
+/* User messages */
+[class*="userMessage"],
+[data-author="User"] {
+  background    : linear-gradient(135deg, #1A2332 0%, #0D1117 100%) !important;
+  border        : 1px solid var(--border-subtle) !important;
+  color         : var(--text-primary) !important;
+}
+
+/* Assistant / bot messages */
+[class*="assistantMessage"],
+[data-author="LocalGenBI"],
+[data-author="AI"] {
+  background    : var(--bg-surface) !important;
+  border        : 1px solid var(--border-subtle) !important;
+  box-shadow    : var(--shadow-card) !important;
+}
+
+/* SQL Engine author badge */
+[data-author="SQL Engine"] {
+  background    : linear-gradient(135deg, #0D1117 0%, #11191F 100%) !important;
+  border        : 1px solid #1F3A2A !important;
+  border-left   : 3px solid var(--brand-teal) !important;
+}
+
+/* ── Markdown in messages ────────────────────────────────────── */
+
+/* Headers */
+[class*="message"] h2,
+[class*="message"] h3 {
+  color         : var(--text-primary) !important;
+  font-weight   : 600 !important;
+  margin-bottom : 0.5rem !important;
+}
+
+/* Horizontal rule (used as section divider) */
+[class*="message"] hr {
+  border        : none !important;
+  border-top    : 1px solid var(--border-subtle) !important;
+  margin        : 0.75rem 0 !important;
+}
+
+/* Inline code (database names, metric badges) */
+[class*="message"] code {
+  background    : var(--bg-elevated) !important;
+  color         : var(--brand-teal) !important;
+  border        : 1px solid var(--border-subtle) !important;
+  border-radius : var(--radius-sm) !important;
+  padding       : 2px 6px !important;
+  font-size     : 0.8em !important;
+}
+
+/* Code blocks (SQL) */
+[class*="message"] pre {
+  background    : #0A0F14 !important;
+  border        : 1px solid var(--border-subtle) !important;
+  border-left   : 3px solid var(--brand-teal) !important;
+  border-radius : var(--radius-md) !important;
+  padding       : 1rem 1.25rem !important;
+  overflow-x    : auto !important;
+  box-shadow    : inset 0 2px 8px rgba(0,0,0,0.3) !important;
+}
+
+[class*="message"] pre code {
+  background    : transparent !important;
+  border        : none !important;
+  color         : #A5D6FF !important;
+  padding       : 0 !important;
+  font-size     : 0.82rem !important;
+}
+
+/* Blockquote (warnings, notes) */
+[class*="message"] blockquote {
+  background    : rgba(210, 153, 34, 0.07) !important;
+  border-left   : 3px solid var(--text-secondary) !important;
+  border-radius : 0 var(--radius-sm) var(--radius-sm) 0 !important;
+  padding       : 0.6rem 1rem !important;
+  margin        : 0.5rem 0 !important;
+  color         : var(--text-secondary) !important;
+}
+
+/* Bold text (metric labels) */
+[class*="message"] strong {
+  color         : var(--text-primary) !important;
+  font-weight   : 600 !important;
+}
+
+/* ── Step / Chain-of-thought ────────────────────────────────── */
+[class*="step"],
+[class*="Step"] {
+  background    : var(--bg-elevated) !important;
+  border        : 1px solid var(--border-subtle) !important;
+  border-radius : var(--radius-md) !important;
+  font-size     : 0.82rem !important;
+  color         : var(--text-secondary) !important;
+}
+
+/* Animated thinking dot */
+[class*="step"]::before {
+  content     : "";
+  display     : inline-block;
+  width       : 6px;
+  height      : 6px;
+  border-radius: 50%;
+  background  : var(--brand-teal);
+  margin-right: 8px;
+  animation   : pulse-dot 1.4s ease-in-out infinite;
+  vertical-align: middle;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50%       { opacity: 1;   transform: scale(1.2); }
+}
+
+/* ── Action Buttons (Download) ──────────────────────────────── */
+[class*="action"],
+button[class*="Action"] {
+  font-family   : var(--font-ui) !important;
+  font-size     : 0.78rem !important;
+  font-weight   : 500 !important;
+  letter-spacing: 0.02em !important;
+  border-radius : var(--radius-sm) !important;
+  border        : 1px solid var(--border-subtle) !important;
+  background    : var(--bg-elevated) !important;
+  color         : var(--text-primary) !important;
+  padding       : 5px 14px !important;
+  transition    : all var(--transition-fast) !important;
+  cursor        : pointer !important;
+}
+
+[class*="action"]:hover,
+button[class*="Action"]:hover {
+  border-color  : var(--brand-teal) !important;
+  background    : var(--brand-teal-glow) !important;
+  color         : var(--brand-teal) !important;
+  transform     : translateY(-1px) !important;
+  box-shadow    : var(--shadow-glow) !important;
+}
+
+/* ── File / Image Attachments ───────────────────────────────── */
+[class*="file"],
+[class*="File"],
+[class*="attachment"] {
+  background    : var(--bg-elevated) !important;
+  border        : 1px solid var(--border-subtle) !important;
+  border-radius : var(--radius-md) !important;
+  padding       : 0.6rem 1rem !important;
+  font-size     : 0.82rem !important;
+  color         : var(--brand-teal) !important;
+  text-decoration: none !important;
+  display       : inline-flex !important;
+  align-items   : center !important;
+  gap           : 0.4rem !important;
+  transition    : all var(--transition-fast) !important;
+}
+
+[class*="file"]:hover,
+[class*="File"]:hover {
+  background    : var(--brand-teal-glow) !important;
+  border-color  : var(--brand-teal) !important;
+  transform     : translateY(-1px) !important;
+}
+
+/* Inline chart images */
+[class*="image"],
+[class*="Image"] img {
+  border-radius : var(--radius-md) !important;
+  border        : 1px solid var(--border-subtle) !important;
+  box-shadow    : var(--shadow-card) !important;
+  max-width     : 100% !important;
+  margin-top    : 0.5rem !important;
+}
+
+/* ── Input Bar ──────────────────────────────────────────────── */
+[class*="inputArea"],
+[class*="InputArea"],
+footer,
+[class*="footer"] {
+  background    : var(--bg-surface) !important;
+  border-top    : 1px solid var(--border-subtle) !important;
+}
+
+textarea,
+input[type="text"] {
+  background    : var(--bg-elevated) !important;
+  border        : 1px solid var(--border-subtle) !important;
+  border-radius : var(--radius-md) !important;
+  color         : var(--text-primary) !important;
+  font-size     : 0.9rem !important;
+  transition    : border-color var(--transition-fast) !important;
+}
+
+textarea:focus,
+input[type="text"]:focus {
+  border-color  : var(--border-focus) !important;
+  box-shadow    : 0 0 0 3px var(--brand-teal-glow) !important;
+  outline       : none !important;
+}
+
+/* Send button */
+button[class*="send"],
+button[aria-label*="send"],
+button[aria-label*="Send"] {
+  background    : var(--brand-teal) !important;
+  color         : #0D1117 !important;
+  border-radius : var(--radius-sm) !important;
+  transition    : all var(--transition-fast) !important;
+}
+
+button[class*="send"]:hover,
+button[aria-label*="send"]:hover {
+  background    : #00FFCC !important;
+  transform     : scale(1.05) !important;
+}
+
+/* ── Scrollbar ──────────────────────────────────────────────── */
+::-webkit-scrollbar             { width: 5px; height: 5px; }
+::-webkit-scrollbar-track       { background: var(--bg-base); }
+::-webkit-scrollbar-thumb       { background: var(--border-subtle); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ── Fade-in animation for new messages ─────────────────────── */
+[class*="message"] {
+  animation: msg-appear 280ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes msg-appear {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)   scale(1);    }
+}
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .MuiContainer-root[class*="chat"] {
+    padding: 0 0.75rem !important;
+  }
+}
