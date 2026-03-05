@@ -67,23 +67,17 @@ Existing approaches have notable constraints:
 
 The system uses a five-node LangGraph state machine where each node calls either the local LLM (Ollama) or a database gateway. The key design choices and their rationale:
 
-**Isolated DB gateways over direct DB connections**
-Each database domain gets its own aiohttp/asyncpg process running as a separate container. The backend never holds database credentials at query time — it calls the gateway over HTTP with SQL that has already been validated. A compromised backend process cannot directly access any database.
+- **Isolated DB gateways over direct DB connections**: Each database domain gets its own aiohttp/asyncpg process running as a separate container. The backend never holds database credentials at query time — it calls the gateway over HTTP with SQL that has already been validated. A compromised backend process cannot directly access any database.
 
-**Multi-layer SQL guardrails**
-The LLM generates SQL; the system does not trust it unconditionally. Two independent validation layers (keyword blocklist + prohibited-pattern regex) run before any SQL reaches a database. The guardrails are deterministic and cannot be bypassed by prompt injection — they will always reject `DROP TABLE` regardless of how the LLM frames it.
+- **Multi-layer SQL guardrails**: The LLM generates SQL; the system does not trust it unconditionally. Two independent validation layers (keyword blocklist + prohibited-pattern regex) run before any SQL reaches a database. The guardrails are deterministic and cannot be bypassed by prompt injection — they will always reject `DROP TABLE` regardless of how the LLM frames it.
 
-**PII redaction at entry and exit**
-The raw user query is PII-redacted before it enters any LLM prompt — names, phone numbers, emails in a query never reach the model. Database results are redacted again before they leave the backend, stripping any PII stored in the database from the API response.
+- **PII redaction at entry and exit**: The raw user query is PII-redacted before it enters any LLM prompt — names, phone numbers, emails in a query never reach the model. Database results are redacted again before they leave the backend, stripping any PII stored in the database from the API response.
 
-**Schema introspection at query time**
-The agent does not have a hardcoded schema. It calls `get_schema` on the gateway every query. Schema changes are picked up automatically — no prompt rebuilding required when tables are added or modified.
+- **Schema introspection at query time**: The agent does not have a hardcoded schema. It calls `get_schema` on the gateway every query. Schema changes are picked up automatically — no prompt rebuilding required when tables are added or modified.
 
-**Statistical validation layer**
-A purpose-built `DataAnalyzer` class computes IQR outlier bounds, Pearson/Spearman correlations, and OLS trend slopes on query results before passing them to the analyst LLM. This means the LLM summarises statistically-grounded metrics rather than eyeballing raw numbers.
+- **Statistical validation layer**: A purpose-built `DataAnalyzer` class computes IQR outlier bounds, Pearson/Spearman correlations, and OLS trend slopes on query results before passing them to the analyst LLM. This means the LLM summarises statistically-grounded metrics rather than eyeballing raw numbers.
 
-**Local LLM + think-tag handling**
-DeepSeek-R1 emits chain-of-thought reasoning inside `<think>...</think>` blocks. The system strips these at two independent points (LLM client layer and orchestrator layer) so they never appear in API responses or get stored in session state.
+- **Local LLM + think-tag handling**: Llama-3 emits chain-of-thought reasoning inside `<think>...</think>` blocks. The system strips these at two independent points (LLM client layer and orchestrator layer) so they never appear in API responses or get stored in session state.
 
 ---
 
