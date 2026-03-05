@@ -603,7 +603,7 @@ All Chainlit users share the same backend process with no isolation between sess
 
 ## Quickstart
 
-See [STARTUP_GUIDE.md](STARTUP_GUIDE.md) for full prerequisites, step-by-step instructions, and troubleshooting.
+See [QUICK_STARTUP.md](docs/QUICK_STARTUP.md) for full prerequisites, step-by-step instructions, and troubleshooting.
 
 **Docker — fastest path:**
 
@@ -730,10 +730,10 @@ If you change any port, update both `.env` and the corresponding `ports:` mappin
 
 | File | Contents |
 |---|---|
-| [STARTUP_GUIDE.md](STARTUP_GUIDE.md) | Full prerequisites, setup steps, port reference, troubleshooting |
-| [API_DOCUMENTATION.md](API_DOCUMENTATION.md) | FastAPI endpoint reference: request/response schemas, examples, error codes |
-| [SYSTEM_DOCUMENTATION.md](SYSTEM_DOCUMENTATION.md) | Architecture deep-dive: agent pipeline, serialisation, stats, export flow |
-| [EVALUATION_GUIDE.md](EVALUATION_GUIDE.md) | How to run evaluation, interpret scores, extend the dataset |
+| [QUICK_STARTUP.md](docs/QUICK_STARTUP.md) | Full prerequisites, setup steps, port reference, troubleshooting |
+| [API_DOCUMENTATION.md](docs/API_DOCUMENTATION.md) | FastAPI endpoint reference: request/response schemas, examples, error codes |
+| [SYSTEM_DOCUMENTATION.md](docs/SYSTEM_DOCUMENTATION.md) | Architecture deep-dive: agent pipeline, serialisation, stats, export flow |
+| [EVALUATION_GUIDE.md](docs/EVALUATION_GUIDE.md) | How to run evaluation, interpret scores, extend the dataset |
 
 ---
 
