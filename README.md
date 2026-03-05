@@ -200,54 +200,54 @@ graph TB
 ```mermaid
 sequenceDiagram
     autonumber
-    actor U  as 👤 User
-    participant CL  as Chainlit<br/>:8000
-    participant FA  as FastAPI<br/>:8001
-    participant ORC as Orchestrator<br/>(LangGraph)
-    participant LLM as Ollama<br/>DeepSeek-R1 8B
-    participant GW  as DB Gateway<br/>:300x
+    actor U  as User
+    participant CL  as Chainlit :8000
+    participant FA  as FastAPI :8001
+    participant ORC as Orchestrator
+    participant LLM as Ollama DeepSeek-R1
+    participant GW  as DB Gateway :300x
     participant DB  as PostgreSQL
 
     U   ->>  CL  : Natural language query
-    CL  ->>  FA  : POST /api/query · {query, session_id}
+    CL  ->>  FA  : POST /api/query {query, session_id}
     FA  ->>  ORC : process_query()
 
-    Note over ORC : 🛡 PII-redact input before any LLM call
+    Note over ORC : PII-redact input before any LLM call
 
     ORC ->>  LLM : supervisor_agent — which database(s)?
-    LLM -->> ORC : ["sales"]  (JSON array)
+    LLM -->> ORC : ["sales"] (JSON array)
 
-    Note over ORC : Parse & validate routing JSON<br/>Fallback: keywords → default DB
+    Note over ORC : Parse and validate routing JSON. Fallback to keywords or default DB
 
-    ORC ->>  GW  : POST /gateway · {method: get_schema}
+    ORC ->>  GW  : POST /gateway {method: get_schema}
     GW  ->>  DB  : information_schema introspection
     DB  -->> GW  : table + column metadata
     GW  -->> ORC : schema JSON
 
-    ORC ->>  LLM : sql_agent — generate SQL<br/>(schema + domain prompt + query)
-    LLM -->> ORC : raw SQL + possible &lt;think&gt; blocks
+    ORC ->>  LLM : sql_agent — generate SQL (schema + domain prompt + query)
+    LLM -->> ORC : raw SQL with possible think blocks
 
-    Note over ORC : Strip think-tags & markdown fences<br/>SQLValidator → keyword blocklist<br/>SQLValidator → prohibited patterns<br/>SQLValidator → inject LIMIT<br/>Orchestrator → 2nd pattern check
+    Note over ORC : Strip think-tags and markdown fences. SQLValidator — keyword blocklist, prohibited patterns, inject LIMIT. Orchestrator — 2nd pattern check
 
-    alt SQL invalid — retry ≤ MAX_AGENT_RETRIES
+    alt SQL invalid — retry up to MAX_AGENT_RETRIES
         ORC ->>  LLM : sql_agent with previous error in context
         LLM -->> ORC : corrected SQL
     end
 
-    ORC ->>  GW  : POST /gateway · {method: query_database, sql}
+    ORC ->>  GW  : POST /gateway {method: query_database, sql}
     GW  ->>  DB  : asyncpg parameterised fetch
     DB  -->> GW  : raw rows
 
-    Note over GW  : Strip BLOCKED_OUTPUT_COLUMNS<br/>Serialise PostgreSQL types → JSON<br/>PII-redact string values
+    Note over GW : Strip BLOCKED_OUTPUT_COLUMNS. Serialise PostgreSQL types to JSON. PII-redact string values
 
     GW  -->> ORC : safe JSON rows
 
-    Note over ORC : Strip BLOCKED_OUTPUT_COLUMNS (2nd pass)<br/>DataAnalyzer → compute summary metrics
+    Note over ORC : Strip BLOCKED_OUTPUT_COLUMNS (2nd pass). DataAnalyzer computes summary metrics
 
-    ORC ->>  LLM : analyst_agent — generate insight<br/>(data table + metrics + question)
+    ORC ->>  LLM : analyst_agent — generate insight (data + metrics + question)
     LLM -->> ORC : natural language answer
 
-    Note over ORC : Strip think-tags<br/>PII-redact answer<br/>Auto-visualise with matplotlib
+    Note over ORC : Strip think-tags. PII-redact answer. Auto-visualise with matplotlib
 
     ORC -->> FA  : {answer, sql, data, visualization, metrics}
     FA  -->> CL  : QueryResponse JSON
