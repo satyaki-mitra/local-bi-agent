@@ -329,7 +329,7 @@ The comprehensive report auto-detects chart-appropriate columns: date columns tr
 ## Project Structure
 
 ```
-localgenbi-agent/
+local-genbi-agent/
 │
 ├── backend/
 │   ├── main.py                    FastAPI app + lifespan + all HTTP routes
