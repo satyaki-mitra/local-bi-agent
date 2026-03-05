@@ -18,7 +18,7 @@
 > The LLM will generate incorrect SQL on complex multi-join queries.
 > Read [Limitations](#limitations) before deploying outside your local machine.
 
-*A locally-running generative BI agent that translates natural-language questions into SQL, routes them to the correct isolated PostgreSQL database, executes validated queries, and returns an analytical answer with an optional chart — all without sending data to any cloud API. Inference runs entirely on-device via Ollama (DeepSeek-R1 8B).*
+*A locally-running generative BI agent that translates natural-language questions into SQL, routes them to the correct isolated PostgreSQL database, executes validated queries, and returns an analytical answer with an optional chart — all without sending data to any cloud API. Inference runs entirely on-device via Ollama (Llama 3 8B).*
 
 </div>
 
@@ -63,7 +63,7 @@ Existing approaches have notable constraints:
 
 **Secondary constraint:** the system must handle multiple isolated databases with different schemas — not a single unified warehouse schema.
 
-**Research question:** Can a locally-hosted smaller reasoning model (DeepSeek-R1 8B) serve as the backbone of a multi-domain NL-to-SQL agent, with explicit guardrails to compensate for its limitations?
+**Research question:** Can a locally-hosted smaller reasoning model (Llama 3 8B) serve as the backbone of a multi-domain NL-to-SQL agent, with explicit guardrails to compensate for its limitations?
 
 ---
 
@@ -81,7 +81,7 @@ The system uses a five-node LangGraph state machine where each node calls either
 
 - **Statistical validation layer**: A purpose-built `DataAnalyzer` class computes IQR outlier bounds, Pearson/Spearman correlations, and OLS trend slopes on query results before passing them to the analyst LLM. This means the LLM summarises statistically-grounded metrics rather than eyeballing raw numbers.
 
-- **Local LLM + think-tag handling**: Llama-3 emits chain-of-thought reasoning inside `<think>...</think>` blocks. The system strips these at two independent points (LLM client layer and orchestrator layer) so they never appear in API responses or get stored in session state.
+- **Local LLM + think-tag handling**: The think-tag stripping is retained for model-swap compatibility — switching OLLAMA_MODEL to DeepSeek-R1 or similar requires no code changes.
 
 ---
 
@@ -137,7 +137,7 @@ graph TB
     end
 
     subgraph LLM_SVC["🤖  LLM Service  ·  :11434"]
-        OL["Ollama<br/>DeepSeek-R1 · 8B"]
+        OL["Ollama<br/>Llama 3 · 8B"]
     end
 
     subgraph GWS["🔀  DB Gateways  ·  <code>db_gateway/</code>"]
@@ -204,7 +204,7 @@ sequenceDiagram
     participant CL  as Chainlit :8000
     participant FA  as FastAPI :8001
     participant ORC as Orchestrator
-    participant LLM as Ollama DeepSeek-R1
+    participant LLM as Ollama Llama 3 8B
     participant GW  as DB Gateway :300x
     participant DB  as PostgreSQL
 
@@ -562,7 +562,7 @@ The following controls are **actually implemented in the current codebase.**
 
 ### SQL generation accuracy
 
-DeepSeek-R1 8B will produce incorrect SQL. It is weakest on:
+Llama 3 8B will produce incorrect SQL. It is weakest on:
 
 - Multi-table JOINs with 3+ tables and non-obvious join keys
 - PostgreSQL-specific aggregate expressions (window functions, CASE WHEN in GROUP BY)
@@ -611,7 +611,7 @@ See [QUICK_STARTUP.md](docs/QUICK_STARTUP.md) for full prerequisites, step-by-st
 cp .env.docker .env
 # Open .env and fill in all lines marked  ← REQUIRED
 docker compose up -d
-docker exec localgenbi-ollama ollama pull deepseek-r1:8b
+docker exec localgenbi-ollama ollama pull llama3:8b
 docker exec localgenbi-backend python setup_dbs.py
 docker exec localgenbi-backend python create_demo_data.py
 # Open browser: http://localhost:8000
@@ -777,3 +777,57 @@ python evaluation/agent_evaluator.py --limit 10 --backend http://localhost:8001
 ```
 
 See [EVALUATION_GUIDE.md](EVALUATION_GUIDE.md) for the complete guide including dataset structure, score interpretation, and how to add your own test cases.
+
+
+### Benchmark Results
+
+> Run `python evaluation/agent_evaluator.py --backend http://localhost:8001 --output evaluation/eval_results.json` to reproduce.
+
+| Metric | Score | Notes |
+|---|---|---|
+| Routing accuracy (overall) | — | 88 single-domain cases |
+| Routing accuracy (cross-DB) | — | 20 ambiguous routing cases |
+| SQL keyword coverage (avg) | — | Structural proxy — not semantic correctness |
+| Answer relevancy (DeepEval) | — | Threshold 0.7 · model: DeepSeek-R1 8B |
+| Faithfulness (DeepEval) | — | Threshold 0.7 · model: DeepSeek-R1 8B |
+
+**Dataset breakdown — 108 cases:**
+
+| Domain | Easy | Medium | Hard | Total |
+|---|---|---|---|---|
+| Health | 6 | 11 | 5 | 22 |
+| Finance | 6 | 11 | 5 | 22 |
+| Sales | 6 | 12 | 4 | 22 |
+| IoT | 6 | 12 | 4 | 22 |
+| Cross-DB routing | 2 | 9 | 9 | 20 |
+| **Total** | **26** | **55** | **27** | **108** |
+
+> ⚠️ Scores reflect Llama 3 8B (inference model) judged by DeepSeek-R1 8B (evaluator). SQL keyword coverage is a structural proxy — a query can pass keyword coverage but return semantically wrong results on complex multi-join patterns. See [Limitations](#limitations).
+
+---
+
+## Author
+
+**Satyaki Mitra** [GitHub](https://github.com/satyaki-mitra)
+
+---
+
+## References
+
+- **Meta Llama 3 (8B)** — Meta AI (2024). [Introducing Meta Llama 3](https://ai.meta.com/blog/meta-llama-3/) — primary inference model for SQL generation and BI analysis
+- **DeepSeek-R1 (8B)** — Guo et al. (2025). [DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning](https://arxiv.org/abs/2501.12948) — used as the DeepEval evaluator model only
+- **LangGraph** — Harrison Chase et al. [LangGraph: Build stateful, multi-actor applications with LLMs](https://github.com/langchain-ai/langgraph)
+- **DeepEval** — [Confident AI — LLM Evaluation Framework](https://github.com/confident-ai/deepeval)
+- **Chainlit** — [Chainlit: Build Conversational AI](https://github.com/Chainlit/chainlit)
+- **Text-to-SQL survey** — Qin et al. (2022). [A Survey on Text-to-SQL Parsing](https://arxiv.org/abs/2208.13629)
+- **Ollama** — [Run large language models locally](https://ollama.com)
+
+---
+
+## Conclusion
+
+This project demonstrates that a locally-hosted 8B reasoning model can serve as the backbone of a functional multi-domain NL-to-SQL agent — with deterministic guardrails compensating for the model's SQL generation limitations on complex queries.
+
+The key finding is that **routing and SQL generation are separable problems with different failure modes.** Routing fails on ambiguous domain language; SQL generation fails on structural complexity (multi-join, window functions). Addressing them requires different mitigations — better routing prompts vs. schema-aware SQL repair loops — and the evaluation harness is designed to measure each independently.
+
+This is not a production system. The SQL accuracy of an 8B model on medium-to-hard queries is insufficient for unsupervised deployment. The appropriate next steps would be fine-tuning a domain-specific SQL model, adding a human-in-the-loop review step for low-confidence queries, or upgrading to a larger model with sufficient VRAM.

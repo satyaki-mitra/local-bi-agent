@@ -178,15 +178,6 @@ class Settings(BaseSettings):
             return [item.strip() for item in v.split(",")]
         
         return v
-        
-
-    @field_validator("chainlit_allow_origins", mode = "before")
-    @classmethod
-    def parse_origins(cls, v):
-        if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",")]
-
-        return v
 
 
     @field_validator("fastapi_workers")
@@ -212,6 +203,15 @@ class Settings(BaseSettings):
             raise ValueError("fastapi_reload=True is incompatible with fastapi_workers > 1. Set FASTAPI_WORKERS=1 when using reload mode.")
 
         return self
+
+    
+    @field_validator("chainlit_allow_origins", mode = "before")
+    @classmethod
+    def parse_origins(cls, v):
+        if isinstance(v, str):
+            return [origin.strip() for origin in v.split(",")]
+
+        return v
 
 
     # Pydantic-settings config

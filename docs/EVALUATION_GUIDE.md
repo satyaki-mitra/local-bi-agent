@@ -225,7 +225,7 @@ Answer relevancy and faithfulness use a second LLM call to judge answers. The de
 
 ```bash
 # .env
-DEEPEVAL_EVALUATOR_MODEL=ollama/deepseek-r1:8b    # default — same model as inference
+DEEPEVAL_EVALUATOR_MODEL=ollama/deepseek-r1:8b    # default evaluator — different from inference model (Llama 3 8B)
 DEEPEVAL_EVALUATOR_MODEL=ollama/deepseek-r1:32b   # more accurate judgements, needs ~20 GB RAM
 ```
 

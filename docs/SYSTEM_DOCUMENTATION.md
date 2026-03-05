@@ -219,7 +219,7 @@ Export files are deleted automatically by `schedule_cleanup()` — an `asyncio` 
 `llm_client/ollama_client.py` wraps the Ollama `/api/chat` HTTP endpoint with:
 
 - **Retry logic** via `tenacity`: exponential back-off (1 s → 2 s → 4 s) on connection errors, configurable max attempts
-- **`<think>` tag stripping**: DeepSeek-R1 returns chain-of-thought reasoning inside `<think>...</think>` blocks. These are stripped by the LLM client before returning to the caller. The orchestrator also strips them independently as belt-and-suspenders.
+- **`<think>` tag stripping**: Think-tag stripping is implemented for model-swap compatibility. If OLLAMA_MODEL is changed to a reasoning model such as DeepSeek-R1, the stripping logic requires no code changes. These are stripped by the LLM client before returning to the caller. The orchestrator also strips them independently as belt-and-suspenders.
 - **`ping()`**: Calls `/api/tags` and returns a bool. Used by the FastAPI `/health` endpoint for real Ollama liveness status.
 - **Singleton pattern**: `_get_llm()` in `orchestrator.py` returns a single `OllamaClient` instance per process, avoiding httpx client recreation on every agent node call.
 
