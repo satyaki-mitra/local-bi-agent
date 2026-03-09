@@ -13,7 +13,7 @@ Prerequisites and step-by-step instructions for running LocalGenBI-Agent in both
 | Python | 3.11+ | 3.10 may work but is untested |
 | PostgreSQL | 15+ | Must be accessible from application hosts |
 | Ollama | Latest | [ollama.ai](https://ollama.ai) |
-| Llama 3 model | 8b |` ollama pull llama3:8b` |
+| Llama 3 model | 8b | `ollama pull llama3:8b` |
 
 ### Docker mode only
 
@@ -21,14 +21,14 @@ Prerequisites and step-by-step instructions for running LocalGenBI-Agent in both
 |---|---|
 | Docker Desktop or Docker Engine | 24.0+ |
 | Docker Compose plugin | v2 (`docker compose`, not `docker-compose`) |
-| 12 GB free RAM | Ollama + 4× Postgres + 4× gateway + backend + frontend |
+| 12 GB free RAM | Ollama + 4× Postgres + 4× gateway + backend |
 | 8 GB free disk | Model weights (~5 GB) + Docker images (~3 GB) |
 
 ---
 
 ## Option A — Docker Compose (Recommended)
 
-Starts all 11 services in the correct dependency order.
+Starts all services in the correct dependency order.
 
 ### Step 1 — Configure environment
 
@@ -46,6 +46,14 @@ DB_IOT_PASSWORD=your_iot_db_password
 DB_ADMIN_PASSWORD=your_postgres_superuser_password
 ```
 
+Optional LLM tuning — the default is `OLLAMA_TEMPERATURE=0.0` (deterministic). The benchmark runs used `0.2`:
+
+```
+OLLAMA_TEMPERATURE=0.2
+```
+
+`0.0` gives fully deterministic SQL — the same prompt always produces the same query. `0.2` adds small variation that can help the retry loop escape repeated identical failures on ambiguous queries. Values above `0.5` noticeably increase hallucination frequency. For reproducible evaluation runs, use `0.0`.
+
 All other values have sensible defaults. If you change any port value, update both `.env` and the corresponding `ports:` mapping in `docker-compose.yml`.
 
 ### Step 2 — Build and start
@@ -60,14 +68,15 @@ First run builds Docker images and pulls the Postgres and Ollama base images (5�
 
 ```bash
 docker exec localgenbi-ollama ollama pull llama3:8b
+docker exec localgenbi-ollama ollama pull mistral:7b   # evaluator model — required only for DeepEval scoring
 ```
 
-Approximately 5 GB. Only needs to be done once — the model is stored in the `localgenbi_ollama_models` Docker volume and survives `docker compose down` / `up` cycles.
+Approximately 5 GB + 4 GB. Only needs to be done once — models are stored in the `localgenbi_ollama_models` Docker volume and survive `docker compose down` / `up` cycles.
 
 ### Step 4 — Initialise database schemas (once)
 
 ```bash
-docker exec localgenbi-backend python setup_dbs.py
+docker exec localgenbi-backend python db_management/setup_dbs.py
 ```
 
 Creates all tables and the read-only application user across all four databases.
@@ -75,7 +84,7 @@ Creates all tables and the read-only application user across all four databases.
 ### Step 5 — Load demo data (optional)
 
 ```bash
-docker exec localgenbi-backend python create_demo_data.py
+docker exec localgenbi-backend python db_management/create_demo_data.py
 ```
 
 Populates all databases with synthetic data: 100 patients / 500 claims, 1,000 transactions / 200 subscriptions, 300 leads / 150 opportunities, 18,250 IoT records (50 users × 365 days).
@@ -86,7 +95,7 @@ Populates all databases with synthetic data: 100 patients / 500 claims, 1,000 tr
 docker compose ps
 ```
 
-All 11 services should show `healthy`. If any show `unhealthy`, check logs:
+All services should show `healthy`. If any show `unhealthy`, check logs:
 
 ```bash
 docker compose logs <service-name>
@@ -98,18 +107,21 @@ docker compose logs <service-name>
 http://localhost:8000
 ```
 
+The HTML SPA is served at `/` by the backend container (via `app.py`). The API is accessible at `/api/...` on the same port.
+
 ---
 
 ## Option B — Native Python (Development)
 
 Runs all services directly on your machine. Use this for hot-reload during development.
 
-### Step 1 — Install Ollama and pull model
+### Step 1 — Install Ollama and pull models
 
 ```bash
 # Install from https://ollama.ai
-ollama serve    # keep this running in a terminal
-ollama pull llama3:8b
+ollama serve                # keep this running in a terminal
+ollama pull llama3:8b       # inference model — required
+ollama pull mistral:7b      # evaluator model — required only for DeepEval scoring
 ```
 
 ### Step 2 — Set up PostgreSQL
@@ -144,12 +156,35 @@ pip install -r requirements.txt
 
 ### Step 5 — Initialise schemas and demo data
 
+**macOS (Homebrew PostgreSQL only):**
+
+Homebrew initialises PostgreSQL with your OS username as the superuser, not `postgres`. Run this once to create the `postgres` role that the scripts expect:
+
 ```bash
-python setup_dbs.py
-python create_demo_data.py
+psql -U $(whoami) -d postgres -c "CREATE ROLE postgres WITH SUPERUSER LOGIN PASSWORD 'your_admin_password';"
 ```
 
+Then create the four databases if they don't exist yet:
+```bash
+psql -U postgres -h localhost -c "CREATE DATABASE health_db;"
+psql -U postgres -h localhost -c "CREATE DATABASE finance_db;"
+psql -U postgres -h localhost -c "CREATE DATABASE sales_db;"
+psql -U postgres -h localhost -c "CREATE DATABASE iot_db;"
+```
+
+Now run the setup scripts from the project root:
+```bash
+python db_management/setup_dbs.py
+python db_management/create_demo_data.py
+```
+
+`setup_dbs.py` creates all tables and the `readonly_user` across all four databases. `create_demo_data.py` seeds synthetic data: 100 patients / 500 claims, 1,000 transactions / 200 subscriptions, 300 leads / 150 opportunities, 18,250 IoT records (50 users × 365 days).
+
+These only need to be run once. Re-running `create_demo_data.py` is safe — it truncates and repopulates all tables cleanly.
+
 ### Step 6 — Start DB gateway servers (4 terminals)
+
+> **Why 4 separate gateway processes?** Each gateway owns exactly one database domain and one asyncpg connection pool. The backend orchestrator never holds database credentials directly — it sends already-validated SQL to the gateway over HTTP. A compromised backend process therefore cannot directly query any database. Gateways also isolate connection pool load: a slow IoT query cannot starve Health connections.
 
 Each gateway is a separate process. Open four terminal windows from the project root with the virtualenv active:
 
@@ -176,23 +211,24 @@ curl http://localhost:3003/health
 curl http://localhost:3004/health
 ```
 
-### Step 7 — Start the FastAPI backend
+### Step 7 — Start the unified app server
+
+The application is now served from a single process via `app.py` at the project root. This serves both the HTML SPA (at `/`) and the full API (at `/api/...`) on the same port.
 
 ```bash
-# Terminal 5
-uvicorn backend.main:app --host 0.0.0.0 --port 8001 --reload
+# Terminal 5 — Unified server: frontend + API  (:8000)
+python app.py
+
+# Alternatively with explicit uvicorn flags:
+uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 ```
+
+> **Important:** Use `app:app` (not `backend.main:app`) when running via uvicorn. Running `backend.main:app` directly bypasses `FrontendMiddleware` (no HTML SPA at `/`) and `ExceptionLoggingMiddleware` (no exception tracing). Use `backend.main:app` only for API-only deployments where the frontend is served separately.
 
 Verify:
 ```bash
-curl http://localhost:8001/health
-```
-
-### Step 8 — Start the Chainlit frontend
-
-```bash
-# Terminal 6
-chainlit run frontend/app.py --host 0.0.0.0 --port 8000
+curl http://localhost:8000/health
+# → {"status":"healthy","ollama_status":"running",...}
 ```
 
 Open `http://localhost:8000`.
@@ -203,8 +239,7 @@ Open `http://localhost:8000`.
 
 | Service | Default Port | Env var to change |
 |---|---|---|
-| Chainlit (UI) | 8000 | `CHAINLIT_PORT` |
-| FastAPI (backend API) | 8001 | `FASTAPI_PORT` |
+| LocalGenBI App (frontend + API) | 8000 | `FASTAPI_PORT` |
 | DB gateway — health | 3001 | `GATEWAY_HEALTH_PORT` |
 | DB gateway — finance | 3002 | `GATEWAY_FINANCE_PORT` |
 | DB gateway — sales | 3003 | `GATEWAY_SALES_PORT` |
@@ -212,9 +247,20 @@ Open `http://localhost:8000`.
 | Ollama | 11434 | Ollama config |
 | PostgreSQL (each) | 5432 | `DB_*_PORT` |
 
+The frontend and API are served from the **same port (8000)**. There is no separate frontend port — `app.py` handles both via `FrontendMiddleware`.
+
 ---
 
 ## Common Issues
+
+**`role "postgres" does not exist` (macOS Homebrew)**
+Homebrew PostgreSQL uses your OS username as the superuser, not `postgres`.
+
+Create the role manually:
+
+```bash
+psql -U $(whoami) -d postgres -c "CREATE ROLE postgres WITH SUPERUSER LOGIN PASSWORD 'your_password';"
+```
 
 **`ImportError: No module named 'db_gateway'`**
 Run all commands from the project root directory, not from inside a subdirectory.
@@ -223,13 +269,19 @@ Run all commands from the project root directory, not from inside a subdirectory
 The gateway waits for its PostgreSQL instance to be ready. In Docker Compose this is handled by `depends_on: condition: service_healthy`. In native mode, ensure `setup_dbs.py` has run successfully before starting the gateways.
 
 **`model "llama3:8b" not found`**
-Run `ollama pull llama3:8b` (local) or `docker exec localgenbi-ollama ollama pull llama3:8b` (Docker).
+Run `ollama pull llama3:8b` (local) or `docker exec localgenbi-ollama ollama pull llama3:8b` (Docker). For evaluation, also pull `mistral:7b`.
+
+**Frontend not loading (blank page or 404)**
+Ensure `frontend/index.html` exists at the project root. If running via uvicorn, confirm you are using `uvicorn app:app` not `uvicorn backend.main:app` — the latter has no frontend middleware.
 
 **CORS error in browser**
-`CHAINLIT_ALLOW_ORIGINS` must include the URL you open in your browser (protocol + port). The default `http://localhost:8000` works when accessing from localhost on port 8000.
+`cors_allow_origins` in `settings.py` (or `CORS_ALLOW_ORIGINS` env var) must include the URL you open in your browser (protocol + port). The default `["*"]` allows all origins in development mode.
 
 **Slow first response**
 The first query after startup loads Llama 3 into memory. On CPU-only hardware this can take 30–120 seconds. Subsequent queries are faster. Monitor backend logs to confirm inference is progressing.
 
 **`ValidationError: db_ssl_mode — SSL must not be disabled in production`**
 Your `.env` has `ENVIRONMENT=production` with `DB_SSL_MODE=disable` (or no `DB_SSL_MODE` set). Either use `ENVIRONMENT=development` for local testing, or configure Postgres SSL and set `DB_SSL_MODE=require`.
+
+**Exception details not visible in terminal**
+Ensure you are running `python app.py` or `uvicorn app:app`. The `ExceptionLoggingMiddleware` in `app.py` prints full tracebacks to stdout. If you run `backend.main:app` directly, exceptions are handled by FastAPI's default error handler with no traceback output.

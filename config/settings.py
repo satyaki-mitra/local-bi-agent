@@ -26,32 +26,32 @@ class Settings(BaseSettings):
     db_health_port                : int        = 5432                  # PostgreSQL port
     db_health_name                : str        = "health_db"
     db_health_user                : str        = "readonly_user"
-    db_health_password            : SecretStr
+    db_health_password            : SecretStr  
 
     # Database – Finance
     db_finance_host               : str        = "postgres-finance"
     db_finance_port               : int        = 5432
     db_finance_name               : str        = "finance_db"
     db_finance_user               : str        = "readonly_user"
-    db_finance_password           : SecretStr
+    db_finance_password           : SecretStr  
 
     # Database – Sales
     db_sales_host                 : str        = "postgres-sales"
     db_sales_port                 : int        = 5432
     db_sales_name                 : str        = "sales_db"
     db_sales_user                 : str        = "readonly_user"
-    db_sales_password             : SecretStr
+    db_sales_password             : SecretStr  
 
     # Database – IoT
     db_iot_host                   : str        = "postgres-iot"
     db_iot_port                   : int        = 5432
     db_iot_name                   : str        = "iot_db"
     db_iot_user                   : str        = "readonly_user"
-    db_iot_password               : SecretStr
+    db_iot_password               : SecretStr  
 
     # Admin
     db_admin_user                 : str        = "postgres"
-    db_admin_password             : SecretStr
+    db_admin_password             : SecretStr  
 
     # FastAPI
     fastapi_host                  : str        = "0.0.0.0"
@@ -94,7 +94,7 @@ class Settings(BaseSettings):
 
     # Evaluation
     deepeval_enabled              : bool       = True
-    deepeval_evaluator_model      : str        = "ollama/deepseek-r1:8b"
+    deepeval_evaluator_model      : str        = "mistral:7b"
     golden_dataset_path           : str        = "/evaluation/golden_dataset.json"
 
     # Code Execution
@@ -111,6 +111,7 @@ class Settings(BaseSettings):
     session_history_enabled       : bool       = True                  # set False to disable in-memory history
     session_history_max_turns     : int        = 20                    # max stored turns per session
     session_context_turns         : int        = 5                     # turns injected into LLM prompts
+    long_term_summary_max_chars   : int        = 2000                  # max length of long-term summary
 
     # Cross-DB
     max_cross_db_domains          : int        = 2                     # max simultaneous domains per query

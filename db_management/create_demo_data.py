@@ -1,10 +1,14 @@
 # DEPENDENCIES
+import sys
+import random
 import asyncio
 import asyncpg
-import random
 import structlog
+from pathlib import Path
 from datetime import datetime
 from datetime import timedelta
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from config.settings import settings
 
 
@@ -17,7 +21,7 @@ async def populate_health_db() -> None:
                                  port     = settings.db_health_port,
                                  database = settings.db_health_name,
                                  user     = settings.db_admin_user,
-                                 password = settings.db_admin_password,
+                                 password = settings.db_admin_password.get_secret_value(),
                                 )
     try:
         # Truncate all health tables in dependency order (child tables first)
@@ -52,8 +56,7 @@ async def populate_health_db() -> None:
                                claims,
                               )
 
-        # procedures: this table was created in setup_dbs.py but was never populated
-        # Each claim gets 0-2 associated procedure rows.
+        # procedures: each claim gets 0-2 associated procedure rows.
         procedure_codes = ["P001", "P002", "P003", "P004", "P005", "P006", "P007", "P008", "P009", "P010"]
         procedures      = list()
 
@@ -88,7 +91,7 @@ async def populate_finance_db() -> None:
                                  port     = settings.db_finance_port,
                                  database = settings.db_finance_name,
                                  user     = settings.db_admin_user,
-                                 password = settings.db_admin_password,
+                                 password = settings.db_admin_password.get_secret_value(),
                                 )
     try:
         # Truncate in FK-safe order (payment_failures references transactions)
@@ -133,8 +136,7 @@ async def populate_finance_db() -> None:
                                subscriptions,
                               )
 
-        # payment_failures: this table was created in setup_dbs.py but was never populated
-        # Generate one failure row per transaction that has status = "Failed"
+        # payment_failures: Generate one failure row per transaction that has status = "Failed"
         failure_reasons  = ["Insufficient funds",
                             "Card expired",
                             "Invalid card number",
@@ -176,7 +178,7 @@ async def populate_sales_db() -> None:
                                  port     = settings.db_sales_port,
                                  database = settings.db_sales_name,
                                  user     = settings.db_admin_user,
-                                 password = settings.db_admin_password,
+                                 password = settings.db_admin_password.get_secret_value(),
                                 )
     try:
         # Truncate in FK-safe order (opportunities references leads)
@@ -247,7 +249,7 @@ async def populate_iot_db() -> None:
                                  port     = settings.db_iot_port,
                                  database = settings.db_iot_name,
                                  user     = settings.db_admin_user,
-                                 password = settings.db_admin_password,
+                                 password = settings.db_admin_password.get_secret_value(),
                                 )
     try:
         await conn.execute("""

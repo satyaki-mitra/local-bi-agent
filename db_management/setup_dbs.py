@@ -1,7 +1,12 @@
 # DEPENDENCIES
+import sys
 import asyncio
 import asyncpg
 import structlog
+from pathlib import Path
+from pydantic import SecretStr
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from config.settings import settings
 
 
@@ -9,12 +14,9 @@ logger = structlog.get_logger()
 
 
 # Connection helper
-async def connect_with_retry(host: str, port: int, database: str, use: str, password: str, max_retries: int = 10, base_delay: float = 2.0) -> asyncpg.Connection:
+async def connect_with_retry(host: str, port: int, database: str, user: str, password: SecretStr, max_retries: int = 10, base_delay: float = 2.0) -> asyncpg.Connection:
     """
-    Connect to a PostgreSQL database with exponential back-off
-
-    - Waits base_delay * 2^(attempt-1) seconds between attempts, capped at 30 s
-    - Raises the last exception if all attempts are exhausted
+    Connect to a PostgreSQL database with exponential back-off: accepts password as SecretStr and unwraps it internally
     """
     for attempt in range(1, max_retries + 1):
         try:
@@ -22,7 +24,7 @@ async def connect_with_retry(host: str, port: int, database: str, use: str, pass
                                          port     = port,
                                          database = database,
                                          user     = user,
-                                         password = password,
+                                         password = password.get_secret_value(),
                                         )
 
             logger.info("Database connected",
@@ -42,7 +44,7 @@ async def connect_with_retry(host: str, port: int, database: str, use: str, pass
                 raise
 
             delay = min(base_delay * (2 ** (attempt - 1)), 30.0)
-            
+
             logger.warning("Database not ready, retrying",
                            database = database,
                            attempt  = attempt,
@@ -52,16 +54,33 @@ async def connect_with_retry(host: str, port: int, database: str, use: str, pass
             await asyncio.sleep(delay)
 
 
+def _escape_password(password: str) -> str:
+    """
+    Escape a password string for safe interpolation into ALTER USER SQL
+    """
+    escaped = password.replace("\\", "\\\\").replace("'", "''")
+    return f"'{escaped}'"
+
+
 # Readonly user
-async def create_readonly_user(conn: asyncpg.Connection, db_name: str, password: str) -> None:
+async def create_readonly_user(conn    : asyncpg.Connection,
+                                db_name : str,
+                                password: SecretStr,
+                               ) -> None:
     """
     Create (or confirm) the read-only application user and grant SELECT on every current and future table in the public schema
 
-    The password is applied via a separate parameterised ALTER USER statement to avoid SQL injection — the DO block itself only checks existence and
-    never interpolates the password into SQL text
+    IMPORTANT: Must NOT be called concurrently across databases readonly_user is a single cluster-level role. 
+    Concurrent ALTER USER calls all write to the same pg_authid row and cause 'tuple concurrently updated'.
+    Always call via setup_readonly_user_all_dbs() which runs sequentially.
     """
+    _KNOWN_DB_NAMES = {"health_db", "finance_db", "sales_db", "iot_db"}
+
+    if db_name not in _KNOWN_DB_NAMES:
+        raise ValueError(f"Unexpected db_name: {db_name!r}")
+
     try:
-        # Create user if it does not exist (no password here — safe)
+        # Create user if it does not exist
         await conn.execute("""
             DO $$
             BEGIN
@@ -72,29 +91,27 @@ async def create_readonly_user(conn: asyncpg.Connection, db_name: str, password:
             $$;
         """)
 
-        # Set / rotate password via a parameterised statement
-        await conn.execute(f"ALTER USER readonly_user WITH PASSWORD '{password}'")
+        # ALTER USER does not support $1 parameters in PostgreSQL — DDL only supports literal values. Password is escaped manually via _escape_password()
+        escaped_pw = _escape_password(password.get_secret_value())
+        await conn.execute(f"ALTER USER readonly_user WITH PASSWORD {escaped_pw}")
 
-        # Grant access — GRANT SELECT ON ALL TABLES covers every table that exists now; ALTER DEFAULT PRIVILEGES covers any table added later
-        await conn.execute(f"GRANT CONNECT ON DATABASE {db_name} TO readonly_user")
+        # db_name validated against whitelist above — safe to interpolate
+        await conn.execute(f'GRANT CONNECT ON DATABASE "{db_name}" TO readonly_user')
         await conn.execute("GRANT USAGE ON SCHEMA public TO readonly_user")
         await conn.execute("GRANT SELECT ON ALL TABLES IN SCHEMA public TO readonly_user")
         await conn.execute("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO readonly_user")
 
-        logger.info("Read-only user configured",
-                    database = db_name,
-                   )
+        logger.info("Read-only user configured", database = db_name)
 
     except Exception as e:
-        logger.error("Failed to create readonly user",
-                     database = db_name,
-                     error    = str(e),
-                    )
+        logger.error("Failed to create readonly user", database = db_name, error = str(e))
         raise
 
 
-# Per-domain setup functions: To add a table paste a new CREATE TABLE IF NOT EXISTS block inside the
-# triple-quoted string.  The readonly user grant runs after all tables are created so it covers everything automatically
+# Per-domain schema setup
+# To add a table: paste a new CREATE TABLE IF NOT EXISTS block inside the
+# triple-quoted string. The readonly user grant runs after all tables are
+# created so it covers everything automatically.
 async def setup_health_db() -> None:
     conn = await connect_with_retry(host     = settings.db_health_host,
                                     port     = settings.db_health_port,
@@ -132,7 +149,6 @@ async def setup_health_db() -> None:
             -- ── Add new Health tables below this line ─────────────────────
         """)
 
-        await create_readonly_user(conn, settings.db_health_name, settings.db_health_password)
         logger.info("Health database schema ready")
 
     finally:
@@ -179,7 +195,6 @@ async def setup_finance_db() -> None:
             -- ── Add new Finance tables below this line ────────────────────
         """)
 
-        await create_readonly_user(conn, settings.db_finance_name, settings.db_finance_password)
         logger.info("Finance database schema ready")
 
     finally:
@@ -225,7 +240,6 @@ async def setup_sales_db() -> None:
             -- ── Add new Sales tables below this line ──────────────────────
         """)
 
-        await create_readonly_user(conn, settings.db_sales_name, settings.db_sales_password)
         logger.info("Sales database schema ready")
 
     finally:
@@ -250,44 +264,70 @@ async def setup_iot_db() -> None:
             );
 
             CREATE TABLE IF NOT EXISTS heart_rate_avg (
-                record_id           SERIAL PRIMARY KEY,
-                user_id             INTEGER NOT NULL,
-                date                DATE,
-                avg_heart_rate      INTEGER,
-                resting_heart_rate  INTEGER
+                record_id          SERIAL PRIMARY KEY,
+                user_id            INTEGER NOT NULL,
+                date               DATE,
+                avg_heart_rate     INTEGER,
+                resting_heart_rate INTEGER
             );
 
             CREATE TABLE IF NOT EXISTS sleep_hours (
-                record_id             SERIAL PRIMARY KEY,
-                user_id               INTEGER NOT NULL,
-                date                  DATE,
-                sleep_duration_hours  DECIMAL(4, 2),
-                sleep_quality_score   INTEGER
+                record_id            SERIAL PRIMARY KEY,
+                user_id              INTEGER NOT NULL,
+                date                 DATE,
+                sleep_duration_hours DECIMAL(4, 2),
+                sleep_quality_score  INTEGER
             );
 
             -- ── Add new IoT tables below this line ────────────────────────
         """)
 
-        await create_readonly_user(conn, settings.db_iot_name, settings.db_iot_password)
         logger.info("IoT database schema ready")
 
     finally:
         await conn.close()
 
 
-# Entry point 
+async def setup_readonly_user_all_dbs() -> None:
+    """
+    Grant readonly_user access to all four databases sequentially: must be sequential — readonly_user is a single cluster-level role
+
+    Concurrent ALTER USER calls across databases write to the same pg_authid row and cause 'tuple concurrently updated' errors
+    """
+    domains = [(settings.db_health_host, settings.db_health_port, settings.db_health_name, settings.db_health_password),
+               (settings.db_finance_host, settings.db_finance_port, settings.db_finance_name, settings.db_finance_password),
+               (settings.db_sales_host, settings.db_sales_port, settings.db_sales_name, settings.db_sales_password),
+               (settings.db_iot_host, settings.db_iot_port, settings.db_iot_name, settings.db_iot_password),
+              ]
+
+    for host, port, db_name, db_password in domains:
+        conn = await connect_with_retry(host     = host,
+                                        port     = port,
+                                        database = db_name,
+                                        user     = settings.db_admin_user,
+                                        password = settings.db_admin_password,
+                                       )
+        try:
+            await create_readonly_user(conn, db_name, db_password)
+        finally:
+            await conn.close()
+
+
+# Entry point
 async def main() -> None:
     logger.info("Starting database schema setup...")
 
-    # All four databases are initialised concurrently: add new setup_<domain>_db() coroutines here as new databases are added
+    # Step 1 — create all schemas concurrently (independent databases, no shared state)
     await asyncio.gather(setup_health_db(),
                          setup_finance_db(),
                          setup_sales_db(),
                          setup_iot_db(),
                         )
 
-    logger.info("All database schemas initialised successfully")
+    # Step 2 — grant readonly_user access sequentially (shared pg_authid row — concurrent ALTER USER causes 'tuple concurrently updated')
+    await setup_readonly_user_all_dbs()
 
+    logger.info("All database schemas initialised successfully")
 
 
 if __name__ == "__main__":

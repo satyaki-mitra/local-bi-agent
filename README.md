@@ -6,7 +6,7 @@
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109-009688?logo=fastapi&logoColor=white)
 ![LangGraph](https://img.shields.io/badge/LangGraph-0.1.19-8A2BE2)
-![Chainlit](https://img.shields.io/badge/Chainlit-1.0+-F97316)
+![HTML/CSS/JS](https://img.shields.io/badge/Frontend-HTML%2FCSS%2FJS-E34F26?logo=html5&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791?logo=postgresql&logoColor=white)
 ![Ollama](https://img.shields.io/badge/Ollama-Llama--3--8B-black?logo=ollama&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
@@ -19,6 +19,8 @@
 > Read [Limitations](#limitations) before deploying outside your local machine.
 
 *A locally-running generative BI agent that translates natural-language questions into SQL, routes them to the correct isolated PostgreSQL database, executes validated queries, and returns an analytical answer with an optional chart — all without sending data to any cloud API. Inference runs entirely on-device via Ollama (Llama 3 8B).*
+
+![LocalGenBI Demo](docs/localgenbi_demo.gif)
 
 </div>
 
@@ -69,9 +71,9 @@ Existing approaches have notable constraints:
 
 ## Solution Approach and Design Decisions
 
-The system uses a five-node LangGraph state machine where each node calls either the local LLM (Ollama) or a database gateway. The key design choices and their rationale:
+The system uses a six-node LangGraph state machine where each node calls either the local LLM (Ollama) or a database gateway. The key design choices and their rationale:
 
-- **Isolated DB gateways over direct DB connections**: Each database domain gets its own aiohttp/asyncpg process running as a separate container. The backend never holds database credentials at query time — it calls the gateway over HTTP with SQL that has already been validated. A compromised backend process cannot directly access any database.
+- **Isolated DB gateways over direct DB connections**: Each database domain gets its own aiohttp/asyncpg process running as a separate container. The backend never holds database credentials at query time — it calls the gateway over HTTP with SQL that has already been validated. A compromised backend process cannot directly access any database. See [SYSTEM_DOCUMENTATION.md](docs/SYSTEM_DOCUMENTATION.md) — *Why isolated gateways* section — for why this was chosen over direct connections and over MCP (Model Context Protocol).
 
 - **Multi-layer SQL guardrails**: The LLM generates SQL; the system does not trust it unconditionally. Two independent validation layers (keyword blocklist + prohibited-pattern regex) run before any SQL reaches a database. The guardrails are deterministic and cannot be bypassed by prompt injection — they will always reject `DROP TABLE` regardless of how the LLM frames it.
 
@@ -79,9 +81,13 @@ The system uses a five-node LangGraph state machine where each node calls either
 
 - **Schema introspection at query time**: The agent does not have a hardcoded schema. It calls `get_schema` on the gateway every query. Schema changes are picked up automatically — no prompt rebuilding required when tables are added or modified.
 
-- **Statistical validation layer**: A purpose-built `DataAnalyzer` class computes IQR outlier bounds, Pearson/Spearman correlations, and OLS trend slopes on query results before passing them to the analyst LLM. This means the LLM summarises statistically-grounded metrics rather than eyeballing raw numbers.
+- **Statistical validation layer**: A purpose-built `DataAnalyzer` class computes IQR outlier bounds, Pearson/Spearman correlations, and OLS trend slopes on query results before passing them to the analyst LLM. This means the LLM summarises statistically-grounded metrics rather than eyeballing raw numbers. Rich metrics (`data_shape`, `trend_direction`, `outlier_columns`, `top_correlation`) are also surfaced in the API response for frontend rendering.
 
-- **Local LLM + think-tag handling**: The think-tag stripping is retained for model-swap compatibility — switching OLLAMA_MODEL to DeepSeek-R1 or similar requires no code changes.
+- **Dual memory system**: `session_store.py` maintains both short-term memory (last N episodic turns, used to resolve follow-up queries) and long-term memory (persistent cross-session facts, preferred domains, key entities). Long-term memory is extracted heuristically after each successful BI query and injected into subsequent prompts as a `[LONG-TERM MEMORY]` context block.
+
+- **Unified server architecture**: `app.py` at the project root is the single entry point. It wraps `backend.main:app` and mounts two middleware layers — `FrontendMiddleware` (serves the HTML SPA at `/`) and `ExceptionLoggingMiddleware` (full traceback on any unhandled exception). `backend/main.py` is a pure FastAPI API server with no frontend knowledge.
+
+- **Local LLM + think-tag handling**: The think-tag stripping is retained for model-swap compatibility — switching OLLAMA_MODEL to `Mistral:7b` or similar requires no code changes.
 
 ---
 
@@ -93,27 +99,35 @@ The system uses a five-node LangGraph state machine where each node calls either
 | NL-to-SQL — Finance domain | ✅ | |
 | NL-to-SQL — Sales domain | ✅ | |
 | NL-to-SQL — IoT / Wearables domain | ✅ | |
-| Supervisor routing (keyword + LLM two-phase) | ✅ | Accuracy varies with query ambiguity |
+| Conversational queries (hi, who are you, general knowledge) | ✅ | Three-phase routing: keyword fast-path → domain keywords → LLM. Conversational queries bypass the entire SQL pipeline with zero extra latency. |
+| Supervisor routing (three-phase) | ✅ | Phase 1: conversational keyword pre-check (0 ms). Phase 2: domain keyword scan. Phase 3: LLM confirmation with history context. Accuracy varies with query ambiguity. |
 | Live schema introspection per query | ✅ | Not cached — always current |
 | SQL read-only enforcement | ✅ | Keyword blocklist + DB-level readonly user |
 | Prohibited SQL pattern blocking | ✅ | Two independent layers |
 | Automatic LIMIT injection | ✅ | |
-| PII redaction — input and output | ✅ | Regex: SSN, email, phone, CC |
+| PII redaction — query input | ✅ | Regex: SSN, email, phone, CC. Applied to the user query before any LLM call. |
+| PII redaction — DB result rows | ✅ | Applied at gateway + orchestrator (two independent passes) |
 | Blocked column stripping | ✅ | Two independent points in the data path |
 | SQL retry on validation failure | ✅ | Up to `MAX_AGENT_RETRIES` (default 3) |
-| Statistical analysis layer | ✅ | IQR outlier, Pearson/Spearman correlation, OLS trend |
-| Auto-visualization — 4 chart types | ✅ | Rule-based chart type selection |
-| Export: CSV, JSON, HTML, PNG, TXT, Analysis Report | ✅ | |
+| LLM answer post-processing | ✅ | `_clean_llm_answer()` strips boilerplate prefixes, "Business Insight" sections, and caps bullet enumeration to 5 items with an export nudge for large result sets. |
+| Smart visualization gating | ✅ | Skips chart generation for: single-row results (e.g. plain COUNT queries), string-only DataFrames (email/name lookups), and result sets with fewer than 2 numeric points. |
+| Statistical analysis layer | ✅ | IQR outlier detection, Pearson/Spearman correlation, OLS trend, p10/p90/p99 percentiles, skewness/kurtosis, distribution shape classification. Rich metrics (`data_shape`, `trend_direction`, `outlier_columns`, `top_correlation`) returned in API response and rendered by the frontend. |
+| Dual memory system | ✅ | Short-term: last N episodic turns (follow-up resolution). Long-term: persistent cross-session facts, preferred domains, key entities. Memory injected into supervisor + analyst prompts. |
+| Auto-visualization — 9 chart types | ✅ | Bar, horizontal bar, line, multi-series line, scatter, histogram, donut, stacked bar, heatmap |
+| Export: CSV, JSON, Excel (.xlsx), HTML, PNG, TXT, Analysis Report | ✅ | Excel export uses openpyxl with branded headers, alternating rows, freeze panes, auto-fit columns |
 | Path-traversal-safe export filenames | ✅ | |
-| Session history / multi-turn context | ✅ | Per-session in-memory store; injected into supervisor + analyst |
-| Dark-themed Chainlit chat UI | ✅ | |
-| Docker Compose — 11 services | ✅ | Health-gated dependency chain |
+| Multi-turn / follow-up context | ✅ | Session history injected into supervisor and analyst with a LAST RESULT SNAPSHOT block for reliable referential query resolution ("those", "filter them", "compare to last") |
+| HTML+CSS+JS SPA chat UI | ✅ | Dark-themed single-page app at `frontend/index.html`. Starter chips, inline chart rendering, metrics panel, export buttons, session management. Served by `app.py` at `/`. |
+| Unified server entry point | ✅ | `app.py` at project root wraps `backend.main:app`. `FrontendMiddleware` serves the SPA at `/`; `ExceptionLoggingMiddleware` catches and logs all backend exceptions with full traceback. |
+| Docker Compose | ✅ | Health-gated dependency chain |
 | Evaluation harness (DeepEval) | ✅ | 108 golden test cases across 5 domains |
 | User authentication | ❌ | Not implemented |
 | Streaming LLM responses | ❌ | Blocking inference only |
 | Rate limiting middleware | ❌ | Config field exists; no middleware wired |
 | TLS between internal services | ❌ | Plain HTTP on Docker bridge network |
-| Cross-DB SQL JOINs | ❌ | Config flag exists; not implemented — each query targets one DB |
+| Long-term memory persistence | ❌ | In-process dict only — does not survive backend restarts. Redis required for true persistence. |
+| Cross-DB querying (fan-out + DataFrame merge) | ⚠️ | `ENABLE_CROSS_DB_JOINS=true` fans out to two domain agents; results merged Python-side. Off by default. Only 4 domain pairs are allowlisted. |
+| Cross-DB SQL JOINs (single SQL spanning two Postgres instances) | ❌ | Architecturally impossible with isolated databases — not implemented and not planned |
 
 ---
 
@@ -125,11 +139,9 @@ graph TB
         U["👤 User<br/>(Browser)"]
     end
 
-    subgraph FE["⚡  Frontend  ·  :8000"]
-        CL["Chainlit<br/><code>frontend/app.py</code>"]
-    end
-
-    subgraph BE["🔧  Backend  ·  :8001"]
+    subgraph APP["⚡  Unified Server  ·  :8000"]
+        APY["app.py<br/>FrontendMiddleware<br/>ExceptionLoggingMiddleware"]
+        SPA["index.html<br/>HTML + CSS + JS SPA"]
         FA["FastAPI<br/><code>backend/main.py</code>"]
         ORC["LangGraph Orchestrator<br/><code>backend/orchestrator.py</code>"]
         GRD["🛡 Guardrails<br/><code>guardrails/</code>"]
@@ -154,8 +166,9 @@ graph TB
         PI[("iot_db")]
     end
 
-    U      -->|"HTTP"| CL
-    CL     -->|"POST /api/query"| FA
+    U      -->|"HTTP GET /"| SPA
+    U      -->|"HTTP POST /api/..."| APY
+    APY    --> FA
     FA     --> ORC
     ORC    --> GRD
     ORC    --> FEAT
@@ -169,28 +182,28 @@ graph TB
     GS     -->|"asyncpg"| PS
     GI     -->|"asyncpg"| PI
 
-    style Client   fill:#0D1117,stroke:#484F58,color:#E6EDF3
-    style FE       fill:#0D1117,stroke:#00D4AA,color:#E6EDF3
-    style BE       fill:#0D1117,stroke:#1F6FEB,color:#E6EDF3
-    style LLM_SVC  fill:#0D1117,stroke:#BC8CFF,color:#E6EDF3
-    style GWS      fill:#0D1117,stroke:#D29922,color:#E6EDF3
-    style DBS      fill:#0D1117,stroke:#3FB950,color:#E6EDF3
+    style Client  fill:#0D1117,stroke:#484F58,color:#E6EDF3
+    style APP     fill:#0D1117,stroke:#00D4AA,color:#E6EDF3
+    style LLM_SVC fill:#0D1117,stroke:#BC8CFF,color:#E6EDF3
+    style GWS     fill:#0D1117,stroke:#D29922,color:#E6EDF3
+    style DBS     fill:#0D1117,stroke:#3FB950,color:#E6EDF3
 
-    style U    fill:#161B22,stroke:#484F58,color:#E6EDF3
-    style CL   fill:#161B22,stroke:#00D4AA,color:#E6EDF3
-    style FA   fill:#161B22,stroke:#1F6FEB,color:#E6EDF3
-    style ORC  fill:#161B22,stroke:#1F6FEB,color:#E6EDF3
-    style GRD  fill:#161B22,stroke:#F85149,color:#E6EDF3
+    style U   fill:#161B22,stroke:#484F58,color:#E6EDF3
+    style APY fill:#161B22,stroke:#00D4AA,color:#E6EDF3
+    style SPA fill:#161B22,stroke:#00D4AA,color:#E6EDF3
+    style FA  fill:#161B22,stroke:#1F6FEB,color:#E6EDF3
+    style ORC fill:#161B22,stroke:#1F6FEB,color:#E6EDF3
+    style GRD fill:#161B22,stroke:#F85149,color:#E6EDF3
     style FEAT fill:#161B22,stroke:#1F6FEB,color:#E6EDF3
-    style OL   fill:#161B22,stroke:#BC8CFF,color:#E6EDF3
-    style GH   fill:#161B22,stroke:#D29922,color:#E6EDF3
-    style GF   fill:#161B22,stroke:#D29922,color:#E6EDF3
-    style GS   fill:#161B22,stroke:#D29922,color:#E6EDF3
-    style GI   fill:#161B22,stroke:#D29922,color:#E6EDF3
-    style PH   fill:#161B22,stroke:#3FB950,color:#E6EDF3
-    style PF   fill:#161B22,stroke:#3FB950,color:#E6EDF3
-    style PS   fill:#161B22,stroke:#3FB950,color:#E6EDF3
-    style PI   fill:#161B22,stroke:#3FB950,color:#E6EDF3
+    style OL  fill:#161B22,stroke:#BC8CFF,color:#E6EDF3
+    style GH  fill:#161B22,stroke:#D29922,color:#E6EDF3
+    style GF  fill:#161B22,stroke:#D29922,color:#E6EDF3
+    style GS  fill:#161B22,stroke:#D29922,color:#E6EDF3
+    style GI  fill:#161B22,stroke:#D29922,color:#E6EDF3
+    style PH  fill:#161B22,stroke:#3FB950,color:#E6EDF3
+    style PF  fill:#161B22,stroke:#3FB950,color:#E6EDF3
+    style PS  fill:#161B22,stroke:#3FB950,color:#E6EDF3
+    style PI  fill:#161B22,stroke:#3FB950,color:#E6EDF3
 ```
 
 ---
@@ -200,58 +213,76 @@ graph TB
 ```mermaid
 sequenceDiagram
     autonumber
-    actor U  as User
-    participant CL  as Chainlit :8000
-    participant FA  as FastAPI :8001
+    actor U   as User
+    participant SPA as HTML SPA :8000
+    participant APP as app.py (middleware)
+    participant FA  as FastAPI backend/main.py
     participant ORC as Orchestrator
+    participant MEM as Session Store (dual memory)
     participant LLM as Ollama Llama 3 8B
     participant GW  as DB Gateway :300x
     participant DB  as PostgreSQL
 
-    U   ->>  CL  : Natural language query
-    CL  ->>  FA  : POST /api/query {query, session_id}
+    U   ->>  SPA : Natural language query
+    SPA ->>  APP : POST /api/query {query, session_id}
+    APP ->>  FA  : (FrontendMiddleware passes through)
     FA  ->>  ORC : process_query()
 
-    Note over ORC : PII-redact input before any LLM call
+    Note over ORC,MEM : Load short-term history (last N turns)<br/>Load long-term memory (facts, preferred domains, key entities)<br/>PII-redact the raw query before any LLM call
 
-    ORC ->>  LLM : supervisor_agent — which database(s)?
-    LLM -->> ORC : ["sales"] (JSON array)
+    ORC ->>  LLM : supervisor_agent — Phase 1: keyword fast-path (0 ms, no LLM call)
+    Note over ORC : If query is conversational (hi/hello/who are you/thanks/general knowledge),<br/>skip the SQL pipeline entirely — conversational_agent handles it.
 
-    Note over ORC : Parse and validate routing JSON. Fallback to keywords or default DB
+    alt Conversational path
+        ORC ->>  LLM : conversational_agent — single LLM call with system capabilities context
+        LLM -->> ORC : natural-language response
+        ORC ->>  MEM : append_short_term() — save conversational turn
+        ORC -->> FA  : {answer, no SQL, no data}
+        FA  -->> APP : QueryResponse — answer only, no export buttons
+        APP -->> SPA : JSON response
+        SPA -->> U   : Conversational reply
+    else BI query path
+        ORC ->>  LLM : supervisor_agent — Phase 2/3: domain keyword scan + LLM routing
+        LLM -->> ORC : ["sales"] (JSON array)
 
-    ORC ->>  GW  : POST /gateway {method: get_schema}
-    GW  ->>  DB  : information_schema introspection
-    DB  -->> GW  : table + column metadata
-    GW  -->> ORC : schema JSON
+        Note over ORC : Parse and validate routing JSON. Fallback to keywords → default DB
 
-    ORC ->>  LLM : sql_agent — generate SQL (schema + domain prompt + query)
-    LLM -->> ORC : raw SQL with possible think blocks
+        ORC ->>  GW  : POST /gateway {method: get_schema}
+        GW  ->>  DB  : information_schema introspection
+        DB  -->> GW  : table + column metadata
+        GW  -->> ORC : schema JSON
 
-    Note over ORC : Strip think-tags and markdown fences. SQLValidator — keyword blocklist, prohibited patterns, inject LIMIT. Orchestrator — 2nd pattern check
+        ORC ->>  LLM : sql_agent — generate SQL (schema + domain prompt + query)
+        LLM -->> ORC : raw SQL with possible think blocks
 
-    alt SQL invalid — retry up to MAX_AGENT_RETRIES
-        ORC ->>  LLM : sql_agent with previous error in context
-        LLM -->> ORC : corrected SQL
+        Note over ORC : Strip think-tags and markdown fences.<br/>SQLValidator — keyword blocklist, prohibited patterns, inject LIMIT.<br/>Orchestrator — 2nd pattern check.
+
+        alt SQL invalid — retry up to MAX_AGENT_RETRIES
+            ORC ->>  LLM : sql_agent with previous error in context
+            LLM -->> ORC : corrected SQL
+        end
+
+        ORC ->>  GW  : POST /gateway {method: query_database, sql}
+        GW  ->>  DB  : asyncpg parameterised fetch
+        DB  -->> GW  : raw rows
+
+        Note over GW : Strip BLOCKED_OUTPUT_COLUMNS. Serialise PostgreSQL types.<br/>PII-redact all string values in result rows.
+
+        GW  -->> ORC : safe JSON rows
+
+        Note over ORC : Strip BLOCKED_OUTPUT_COLUMNS (2nd pass).<br/>DataAnalyzer computes rich metrics: summary stats, percentiles,<br/>outlier detection, correlations, OLS trend.<br/>_build_rich_metrics() adds data_shape, trend_direction,<br/>outlier_columns, top_correlation to metrics dict.
+
+        ORC ->>  LLM : analyst_agent — generate insight (data + rich metrics + question)
+        LLM -->> ORC : natural language answer
+
+        Note over ORC : Strip think-tags. _clean_llm_answer() removes boilerplate prefixes,<br/>"Business Insight" sections, and caps bullet lists at 5 items.<br/>Smart viz gate: skip chart for 1-row results and string-only DataFrames.
+
+        ORC ->>  MEM : append_short_term() — save BI turn<br/>save_long_term() — extract facts, preferred domain, key entities
+        ORC -->> FA  : {answer, sql, data, visualization, metrics, reasoning_trace, query_confidence}
+        FA  -->> APP : QueryResponse JSON
+        APP -->> SPA : JSON response
+        SPA -->> U   : Answer + inline chart + metrics panel + export buttons
     end
-
-    ORC ->>  GW  : POST /gateway {method: query_database, sql}
-    GW  ->>  DB  : asyncpg parameterised fetch
-    DB  -->> GW  : raw rows
-
-    Note over GW : Strip BLOCKED_OUTPUT_COLUMNS. Serialise PostgreSQL types to JSON. PII-redact string values
-
-    GW  -->> ORC : safe JSON rows
-
-    Note over ORC : Strip BLOCKED_OUTPUT_COLUMNS (2nd pass). DataAnalyzer computes summary metrics
-
-    ORC ->>  LLM : analyst_agent — generate insight (data + metrics + question)
-    LLM -->> ORC : natural language answer
-
-    Note over ORC : Strip think-tags. PII-redact answer. Auto-visualise with matplotlib
-
-    ORC -->> FA  : {answer, sql, data, visualization, metrics}
-    FA  -->> CL  : QueryResponse JSON
-    CL  -->> U   : Answer + inline chart + export buttons
 ```
 
 ---
@@ -262,21 +293,24 @@ sequenceDiagram
 stateDiagram-v2
     direction TB
 
-    [*]              --> supervisor_agent  : query + session_id
+    [*]                  --> supervisor_agent  : query + session_id
 
-    supervisor_agent --> fetch_schema      : planned_databases resolved
+    supervisor_agent     --> conversational_agent : ["conversational"] — greetings, identity, general knowledge
+    supervisor_agent     --> fetch_schema         : BI query — planned_databases resolved
 
-    fetch_schema     --> sql_agent         : schema loaded
+    conversational_agent --> [*]               : answer (no SQL, no data)
 
-    sql_agent        --> execute_sql       : ✅ SQL valid
-    sql_agent        --> sql_agent         : ❌ invalid SQL · retry_count < MAX_RETRIES
-    sql_agent        --> analyst_agent     : ❌ retries exhausted
+    fetch_schema         --> sql_agent         : schema loaded
 
-    execute_sql      --> analyst_agent     : ✅ rows returned
-    execute_sql      --> sql_agent         : ❌ DB error · retry_count < MAX_RETRIES
-    execute_sql      --> analyst_agent     : ❌ retries exhausted
+    sql_agent            --> execute_sql       : ✅ SQL valid
+    sql_agent            --> sql_agent         : ❌ invalid SQL · retry_count < MAX_RETRIES
+    sql_agent            --> analyst_agent     : ❌ retries exhausted
 
-    analyst_agent    --> [*]               : answer + metrics + visualization
+    execute_sql          --> analyst_agent     : ✅ rows returned
+    execute_sql          --> sql_agent         : ❌ DB error · retry_count < MAX_RETRIES
+    execute_sql          --> analyst_agent     : ❌ retries exhausted
+
+    analyst_agent        --> [*]               : answer + rich metrics + visualization
 ```
 
 **State dict fields passed between nodes:**
@@ -285,18 +319,22 @@ stateDiagram-v2
 |---|---|---|
 | `query` | `str` | API (PII-redacted at entry) |
 | `session_id` | `str` | API |
-| `planned_databases` | `List[str]` | supervisor_agent |
+| `planned_databases` | `List[str]` | supervisor_agent (`["conversational"]` or domain list) |
 | `current_schema` | `str` | fetch_schema |
 | `sql` | `str` | sql_agent |
 | `data` | `List[Dict]` | execute_sql |
-| `metrics` | `Dict` | analyst_agent |
-| `answer` | `str` | analyst_agent |
+| `metrics` | `Dict` | analyst_agent (includes `data_shape`, `trend_direction`, `outlier_columns`, `top_correlation`) |
+| `answer` | `str` | analyst_agent or conversational_agent |
 | `errors` | `List[str]` | any failing node |
 | `retry_count` | `int` | sql_agent / execute_sql |
 | `visualization` | `Dict \| None` | analyst_agent |
 | `is_cross_db` | `bool` | supervisor_agent |
 | `cross_db_schemas` | `Dict[str, str]` | fetch_schema (cross-DB path) |
 | `cross_db_results` | `Dict[str, List]` | execute_sql (cross-DB path) |
+| `reasoning_trace` | `List[str]` | every node (human-readable pipeline step log) |
+| `query_confidence` | `float` | analyst_agent (0.0–1.0; deducted for retries, errors, zero rows) |
+| `conversation_history` | `List[Dict]` | loaded by process_query() before graph.ainvoke() |
+| `long_term_context` | `str` | loaded by process_query() — pre-formatted `[LONG-TERM MEMORY]` block |
 
 ---
 
@@ -330,14 +368,24 @@ flowchart TD
 
 ## Statistical Analysis Layer
 
-`features/data_analyzer.py` computes statistical metrics on query results before passing them to the analyst LLM. This grounds the LLM's response in verified numbers rather than having it estimate from raw rows.
+`features/data_analyzer.py` computes statistical metrics on query results before passing them to the analyst LLM. This grounds the LLM's response in verified numbers rather than having it estimate from raw rows. The orchestrator's `_build_rich_metrics()` and `_build_analyst_data_summary()` functions bridge the analyzer output into both the API response and the LLM's analyst prompt.
 
 | Function | What it computes |
 |---|---|
 | `generate_summary_statistics()` | Shape, dtypes, missing value counts, per-column mean / median / std / Q1 / Q3 / IQR. ID-like columns (suffixed `_id`, `_key`) are excluded from numerical summaries. |
 | `generate_correlation_analysis()` | Pairwise correlations for all non-ID numeric column pairs, ranked by absolute value. Supports `method='pearson'` (default, linear) and `method='spearman'` (rank-based, more robust for skewed financial / health data). |
 | `detect_outliers()` | IQR (Tukey fence) with configurable sensitivity (1.5× standard, 3.0× conservative for right-skewed data) or Z-score (3-sigma). |
-| `generate_time_series_analysis()` | OLS linear regression slope + direction, R², coefficient of variation, and half-period comparison. Trend threshold is normalised to `max(1% × |mean|, floor)` — prevents near-zero mean series from misclassifying noise as trends. |
+| `generate_time_series_analysis()` | OLS linear regression slope + direction, R², coefficient of variation, and half-period comparison. Trend threshold is normalised to `max(1% × \|mean\|, floor)` — prevents near-zero mean series from misclassifying noise as trends. |
+
+**Rich metrics surfaced in the API response** (added to `metrics` dict by `_build_rich_metrics()`):
+
+| Key | Source | Example value |
+|---|---|---|
+| `data_shape` | `generate_comprehensive_report()` | `"42 rows × 5 cols"` |
+| `trend_direction` | time-series analysis | `"upward"` / `"downward"` / `"flat"` |
+| `period_change_pct` | half-period comparison | `12.4` |
+| `outlier_columns` | `detect_all_outliers()` | `["claim_amount", "cost"]` |
+| `top_correlation` | correlation analysis | `"revenue ↔ deals (0.87)"` |
 
 The comprehensive report auto-detects chart-appropriate columns: date columns trigger time-series analysis; business-metric columns (`amount`, `revenue`, `value`, etc.) are preferred over arbitrary first-found numerics for the y-axis.
 
@@ -348,15 +396,35 @@ The comprehensive report auto-detects chart-appropriate columns: date columns tr
 ```
 local-genbi-agent/
 │
+├── app.py                         Unified server entry point
+│                                    FrontendMiddleware   — serves frontend/index.html at /
+│                                    ExceptionLoggingMiddleware — full traceback on any 500
+│                                    Wraps backend.main:app
+│
 ├── backend/
-│   ├── main.py                    FastAPI app + lifespan + all HTTP routes
-│   ├── orchestrator.py            LangGraph graph + all 5 agent node functions
-│   └── session_store.py           In-memory per-session history with async locks
+│   ├── main.py                    Pure FastAPI app — lifespan + all HTTP routes
+│   │                                No frontend knowledge; no static file serving
+│   │                                /health, /api/query, /api/sessions/*, /api/export/*
+│   ├── orchestrator.py            LangGraph graph + all 6 agent node functions
+│   │                                supervisor_agent    — three-phase routing
+│   │                                conversational_agent — greetings, identity, general knowledge
+│   │                                fetch_schema        — live schema introspection via gateway
+│   │                                sql_agent           — LLM SQL generation + two-layer validation
+│   │                                execute_sql         — gateway query + blocked-column strip
+│   │                                analyst_agent       — DataAnalyzer + LLM answer + rich metrics
+│   │                                _build_rich_metrics()       — augments metrics from DataAnalyzer
+│   │                                _build_analyst_data_summary() — statistical context for LLM prompt
+│   │                                _extract_facts_for_long_term() — heuristic long-term memory update
+│   └── session_store.py           Dual-memory per-session store with async locks
+│                                    Short-term: last N episodic turns (get_short_term, append_short_term)
+│                                    Long-term:  cross-session facts + preferred domains + key entities
+│                                    (get_long_term, save_long_term, get_for_prompt, get_stats)
+│                                    clear(memory_type=) — selective short/long/all clearing
 │
 ├── config/
 │   ├── settings.py                Pydantic BaseSettings — env vars + validators
 │   ├── constants.py               Frozensets, enums, tuning constants (no secrets)
-│   ├── prompts.py                 All LLM prompts in one file
+│   ├── prompts.py                 All LLM prompts + CONVERSATIONAL_INTENT_KEYWORDS tuple
 │   ├── schemas.py                 Pydantic v2 request/response models
 │   └── __init__.py
 │
@@ -371,12 +439,23 @@ local-genbi-agent/
 │
 ├── features/
 │   ├── data_analyzer.py           Stats: IQR / correlation (Pearson+Spearman) / OLS trend
+│   │                                generate_comprehensive_report() / detect_all_outliers()
+│   │                                generate_time_series_analysis() with smart y-axis selection
 │   ├── export_manager.py          Unified export: path sanitisation + async cleanup scheduling
-│   ├── result_generator.py        Pure rendering: CSV / JSON / HTML / Markdown / TXT
-│   └── visualization_generator.py Matplotlib dark-theme: bar / line / scatter / histogram
+│   │                                export_csv / export_json / export_html_table / export_xlsx
+│   │                                export_visualization / export_analysis_report / export_simple_text
+│   ├── result_generator.py        Pure rendering: CSV / JSON / HTML / Markdown / TXT / XLSX
+│   │                                XLSX: openpyxl branded headers, alternating rows, freeze panes
+│   └── visualization_generator.py Matplotlib dark-theme: bar / horizontal bar / line / multi-series line
+│                                    scatter (sampled to 2,000 pts) / histogram / donut / stacked bar / heatmap
+│                                    auto_visualize() returns Optional[Tuple[Figure, str]]
 │
 ├── frontend/
-│   └── app.py                     Chainlit: message handlers + action callbacks + exports
+│   └── index.html                 HTML+CSS+JS SPA (single file)
+│                                    Dark-themed BI chat interface
+│                                    Starter chips, inline chart rendering, metrics panel
+│                                    Table rendering, export buttons, session management
+│                                    Served by FrontendMiddleware in app.py at /
 │
 ├── guardrails/
 │   ├── sql_validator.py           Keyword blocklist + pattern regex + LIMIT injection
@@ -386,14 +465,10 @@ local-genbi-agent/
 ├── llm_client/
 │   └── ollama_client.py           Async Ollama client: retry + think-tag strip + ping()
 │
-├── .chainlit/
-│   ├── config.toml                Chainlit theme configuration
-│   └── public/style.css           Custom dark BI CSS
-│
 ├── setup_dbs.py                   One-time: create schemas + readonly_user (4 DBs)
 ├── create_demo_data.py            One-time: seed synthetic demo data (4 DBs)
-├── docker-compose.yml             11 services, health-gated dependency chain
-├── Dockerfile                     Multi-stage: base → builder → backend / frontend
+├── docker-compose.yml             Health-gated Docker Compose service stack
+├── Dockerfile                     Multi-stage: base → builder → app
 ├── requirements.txt               Pinned runtime + evaluation dependencies
 ├── .env.local                     Template: native Python dev (all localhost)
 └── .env.docker                    Template: Docker Compose (Docker service hostnames)
@@ -541,18 +616,19 @@ The following controls are **actually implemented in the current codebase.**
 
 | Control | Location | What it does |
 |---|---|---|
-| DB read-only user | `setup_dbs.py` | `readonly_user` has SELECT only — DDL/DML rejected at DB level unconditionally |
+| DB read-only user | `db_management/setup_dbs.py` | `readonly_user` has SELECT only — DDL/DML rejected at DB level unconditionally |
 | SQL keyword blocklist | `guardrails/sql_validator.py` | Frozenset O(1): DROP, DELETE, INSERT, UPDATE, ALTER, TRUNCATE, EXEC, CALL, … |
 | Prohibited SQL patterns | `sql_validator.py` + `orchestrator.py` | Regex: information_schema, pg_sleep, lo_*, COPY, xp_* — two independent checks |
 | LIMIT injection | `guardrails/sql_validator.py` | Wraps result in outer query to enforce LIMIT regardless of subquery structure |
-| Blocked column stripping | `db_gateway/base_server.py` + `orchestrator.py` | Column name blocklist stripped at two independent points in the data path |
+| Blocked column stripping | `db_gateway/base_server.py` + `orchestrator.py` | Column name blocklist (`set`) stripped at two independent points in the data path |
 | PII redaction — input | `orchestrator.py` | Query PII-redacted before entering any LLM prompt |
 | PII redaction — output | `db_gateway/base_server.py` + `orchestrator.py` | All string values in results + LLM answer text |
 | Export path sanitisation | `features/export_manager.py` | `Path.is_relative_to()` prevents path traversal — string prefix matching bypass is patched |
 | XSS prevention in HTML exports | `features/result_generator.py` | `df.to_html(escape=True)` |
 | Production SSL guard | `config/settings.py` | `ValidationError` at startup if `ENVIRONMENT=production` and SSL disabled |
 | Code sandbox | `guardrails/code_sandbox.py` | AST validation + restricted exec: blocks builtins + non-whitelisted imports |
-| Non-root Docker user | `Dockerfile` | Backend + frontend run as `appuser`, not root |
+| Non-root Docker user | `Dockerfile` | Backend runs as `appuser`, not root |
+| Exception logging middleware | `app.py` | `ExceptionLoggingMiddleware` catches all unhandled exceptions, logs full traceback, returns sanitised 500 JSON — raw error detail is never exposed to the client |
 
 **Not implemented:** authentication, authorisation, TLS between internal services, audit logging, rate limiting middleware (config field exists, no middleware wired).
 
@@ -562,7 +638,7 @@ The following controls are **actually implemented in the current codebase.**
 
 ### SQL generation accuracy
 
-Llama 3 8B will produce incorrect SQL. It is weakest on:
+Llama 3 8B will produce incorrect SQL (`OLLAMA_TEMPERATURE=0.2` in benchmarks — lower temperature reduces hallucination frequency but does not eliminate it). It is weakest on:
 
 - Multi-table JOINs with 3+ tables and non-obvious join keys
 - PostgreSQL-specific aggregate expressions (window functions, CASE WHEN in GROUP BY)
@@ -571,17 +647,25 @@ Llama 3 8B will produce incorrect SQL. It is weakest on:
 
 The retry mechanism recovers from syntactic errors but not semantic misunderstandings. If the model consistently misunderstands a query type, retrying will not help.
 
-### Single-database per query
+### Cross-DB querying vs cross-DB SQL JOINs
 
-The supervisor picks one database per query. There is no mechanism to JOIN tables across two PostgreSQL instances. `ENABLE_CROSS_DB_JOINS=false` is a configuration field; setting it to `true` does not enable the feature — cross-DB JOINs are not implemented. The supervisor routing tests in the evaluation harness test single-database routing for queries with ambiguous domain language (e.g. "What is our churn rate?" → finance), not actual cross-database SQL.
+These are two different things and the distinction matters.
+
+**Cross-DB querying** (implemented, off by default — enable via `ENABLE_CROSS_DB_JOINS=true`): When enabled, the supervisor can route a query to two domain agents simultaneously. Each agent generates and executes its own SQL against its own isolated Postgres instance. Results come back as separate row sets and are merged Python-side with a `_source_domain` label column before being passed to the analyst. Only 4 domain pairs are allowlisted in `ALLOWED_CROSS_DB_PAIRS` (health+finance, finance+sales, iot+health, sales+iot). The 20 cross-domain evaluation cases test routing accuracy into this path — the reference run achieved 95.0%.
+
+**Cross-DB SQL JOINs** (not implemented, not possible): A single SQL query that JOINs tables from two different Postgres instances. This is architecturally impossible when databases run as isolated containers.
 
 ### Supervisor routing is imperfect
 
-The keyword + LLM two-phase routing handles clear domain-specific queries well. It degrades on queries using generic business language ("cost", "revenue", "performance", "users") that could plausibly map to multiple databases. The golden dataset includes 20 deliberately ambiguous routing cases to measure exactly this failure mode.
+The three-phase routing (conversational keyword fast-path → domain keyword scan → LLM confirmation) handles most queries reliably. Domain routing degrades on queries using generic business language ("cost", "revenue", "performance", "users") that could plausibly map to multiple databases.
+
+### Long-term memory is heuristic and non-persistent
+
+Long-term memory is extracted from successful BI query answers using regex-based heuristics. Facts are stored as the first sentence of each answer (rolling window of 10) with no contradiction detection — stale or incorrect facts will accumulate over time. The store lives in process memory and does not survive backend restarts. Redis or a persistent KV store is required for true long-term memory.
 
 ### Session memory is in-process only
 
-Session history is stored in a Python dict in the FastAPI process memory. It is not persisted to disk or a database. Restarting the backend clears all session history. Multiple uvicorn workers (`FASTAPI_WORKERS > 1`) will not share session state. For the single-worker default configuration this works correctly.
+Short-term session history is stored in a Python dict in the FastAPI process memory. It is not persisted to disk or a database. Restarting the backend clears all session history. Multiple uvicorn workers (`FASTAPI_WORKERS > 1`) will not share session state.
 
 ### Blocking, slow inference
 
@@ -597,7 +681,7 @@ Chart type is selected by column dtype rules — the agent does not understand q
 
 ### No multi-user isolation
 
-All Chainlit users share the same backend process with no isolation between sessions beyond the in-memory session store. Do not expose this to untrusted users or the public internet without adding authentication.
+All users share the same backend process with no isolation between sessions beyond the in-memory session store. Do not expose this to untrusted users or the public internet without adding authentication.
 
 ---
 
@@ -612,8 +696,8 @@ cp .env.docker .env
 # Open .env and fill in all lines marked  ← REQUIRED
 docker compose up -d
 docker exec localgenbi-ollama ollama pull llama3:8b
-docker exec localgenbi-backend python setup_dbs.py
-docker exec localgenbi-backend python create_demo_data.py
+docker exec localgenbi-backend python db_management/setup_dbs.py
+docker exec localgenbi-backend python db_management/create_demo_data.py
 # Open browser: http://localhost:8000
 ```
 
@@ -624,16 +708,16 @@ cp .env.local .env
 # Open .env and fill in all lines marked  ← REQUIRED
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python setup_dbs.py
-python create_demo_data.py
-# Then start 6 processes — see All Start Commands below
+python db_management/setup_dbs.py
+python db_management/create_demo_data.py
+# Then start 5 processes — see All Start Commands below
 ```
 
 ---
 
 ## All Start Commands
 
-### Native Python (6 processes)
+### Native Python (5 processes)
 
 Run each in a separate terminal from the project root with the virtual environment active.
 
@@ -650,11 +734,11 @@ python -m db_gateway.gateway_factory sales
 # Terminal 4 — DB gateway: IoT  (:3004)
 python -m db_gateway.gateway_factory iot
 
-# Terminal 5 — FastAPI backend  (:8001)
-uvicorn backend.main:app --host 0.0.0.0 --port 8001 --reload
-
-# Terminal 6 — Chainlit frontend  (:8000)
-chainlit run frontend/app.py --host 0.0.0.0 --port 8000
+# Terminal 5 — Unified app server  (:8000)
+# Serves the HTML SPA at / and the API at /api/...
+python app.py
+# or equivalently:
+# uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 Verify each gateway is up before sending queries:
@@ -664,13 +748,15 @@ curl http://localhost:3001/health   # {"status":"healthy","domain":"health",...}
 curl http://localhost:3002/health
 curl http://localhost:3003/health
 curl http://localhost:3004/health
-curl http://localhost:8001/health   # {"status":"healthy","ollama_status":"running",...}
+curl http://localhost:8000/health   # {"status":"healthy","ollama_status":"running",...}
 ```
+
+Open browser: `http://localhost:8000`
 
 ### Docker Compose
 
 ```bash
-# Start all 11 services in background
+# Start all services in background
 docker compose up -d
 
 # Watch all logs live
@@ -678,7 +764,6 @@ docker compose logs -f
 
 # Watch a single service
 docker compose logs -f backend
-docker compose logs -f gateway-health
 
 # Check service health status
 docker compose ps
@@ -694,8 +779,8 @@ docker compose build --no-cache
 docker compose up -d
 
 # One-off commands inside a running container
-docker exec localgenbi-backend python setup_dbs.py
-docker exec localgenbi-backend python create_demo_data.py
+docker exec localgenbi-backend python db_management/setup_dbs.py
+docker exec localgenbi-backend python db_management/create_demo_data.py
 
 # Run evaluation inside Docker (dry-run — no backend calls)
 docker exec localgenbi-backend python evaluation/agent_evaluator.py --dry-run
@@ -703,7 +788,7 @@ docker exec localgenbi-backend python evaluation/agent_evaluator.py --dry-run
 # Run full evaluation
 docker exec localgenbi-backend \
     python evaluation/agent_evaluator.py \
-    --backend http://localhost:8001 \
+    --backend http://localhost:8000 \
     --output /app/temp/exports/eval_results.json
 ```
 
@@ -713,14 +798,15 @@ docker exec localgenbi-backend \
 
 | Service | Default port | Env var to change |
 |---|---|---|
-| Chainlit UI | 8000 | `CHAINLIT_PORT` |
-| FastAPI backend | 8001 | `FASTAPI_PORT` |
+| LocalGenBI App (frontend + API) | 8000 | `FASTAPI_PORT` |
 | DB gateway — health | 3001 | `GATEWAY_HEALTH_PORT` |
 | DB gateway — finance | 3002 | `GATEWAY_FINANCE_PORT` |
 | DB gateway — sales | 3003 | `GATEWAY_SALES_PORT` |
 | DB gateway — iot | 3004 | `GATEWAY_IOT_PORT` |
 | Ollama | 11434 | Ollama config file |
 | PostgreSQL (each instance) | 5432 | `DB_*_PORT` |
+
+The application is now served from a **single port (8000)**. `app.py` handles both the HTML frontend (at `/`) and all API routes (at `/api/...`) via middleware. There is no longer a separate frontend port.
 
 If you change any port, update both `.env` and the corresponding `ports:` mapping in `docker-compose.yml`.
 
@@ -730,10 +816,10 @@ If you change any port, update both `.env` and the corresponding `ports:` mappin
 
 | File | Contents |
 |---|---|
-| [QUICK_STARTUP.md](docs/QUICK_STARTUP.md) | Full prerequisites, setup steps, port reference, troubleshooting |
-| [API_DOCUMENTATION.md](docs/API_DOCUMENTATION.md) | FastAPI endpoint reference: request/response schemas, examples, error codes |
-| [SYSTEM_DOCUMENTATION.md](docs/SYSTEM_DOCUMENTATION.md) | Architecture deep-dive: agent pipeline, serialisation, stats, export flow |
-| [EVALUATION_GUIDE.md](docs/EVALUATION_GUIDE.md) | How to run evaluation, interpret scores, extend the dataset |
+| [QUICK_STARTUP.md](docs/QUICK_STARTUP.md) | Full prerequisites, step-by-step setup for Docker and native Python, port reference, troubleshooting. Start here if you just want to run it. |
+| [API_DOCUMENTATION.md](docs/API_DOCUMENTATION.md) | FastAPI endpoint reference: all routes, request/response schemas, field definitions, error codes. Includes the internal gateway API. |
+| [SYSTEM_DOCUMENTATION.md](docs/SYSTEM_DOCUMENTATION.md) | Architecture deep-dive: agent pipeline, dual memory system, DataAnalyzer integration, why isolated gateways (vs direct connections, vs MCP), SQL validation layers, statistical analysis, export flow, session design. |
+| [EVALUATION_GUIDE.md](docs/EVALUATION_GUIDE.md) | How to run evaluation, interpret scores, extend the golden dataset, run in CI. Includes why end-to-end eval was chosen over per-node unit tests. |
 
 ---
 
@@ -763,46 +849,56 @@ python evaluation/agent_evaluator.py --dry-run
 
 # Full evaluation against local backend, save results
 python evaluation/agent_evaluator.py \
-    --backend http://localhost:8001 \
+    --backend http://localhost:8000 \
     --output results.json
 
 # Single domain (22 cases)
-python evaluation/agent_evaluator.py --domain health --backend http://localhost:8001
+python evaluation/agent_evaluator.py --domain health --backend http://localhost:8000
 
 # Cross-DB routing tests only (20 cases)
-python evaluation/agent_evaluator.py --domain cross_db_routing --backend http://localhost:8001
+python evaluation/agent_evaluator.py --domain cross_db_routing --backend http://localhost:8000
 
 # Smoke-test: first 10 cases only
-python evaluation/agent_evaluator.py --limit 10 --backend http://localhost:8001
+python evaluation/agent_evaluator.py --limit 10 --backend http://localhost:8000
 ```
 
-See [EVALUATION_GUIDE.md](EVALUATION_GUIDE.md) for the complete guide including dataset structure, score interpretation, and how to add your own test cases.
-
+See [EVALUATION_GUIDE.md](docs/EVALUATION_GUIDE.md) for the complete guide.
 
 ### Benchmark Results
 
-> Run `python evaluation/agent_evaluator.py --backend http://localhost:8001 --output evaluation/eval_results.json` to reproduce.
+> Run `python evaluation/agent_evaluator.py --backend http://localhost:8000 --output evaluation/eval_results.json` to reproduce.
+>
+> **Conditions:** Llama 3 8B inference model at `OLLAMA_TEMPERATURE=0.2`, evaluated by Mistral 7B. CPU-only hardware (Apple Silicon, MPS not used by Ollama). All 108 cases. Full run time: **~18 minutes** (inference avg 8.1 s/query · DeepEval scoring avg 26.2 s/case).
 
 | Metric | Score | Notes |
 |---|---|---|
-| Routing accuracy (overall) | — | 88 single-domain cases |
-| Routing accuracy (cross-DB) | — | 20 ambiguous routing cases |
-| SQL keyword coverage (avg) | — | Structural proxy — not semantic correctness |
-| Answer relevancy (DeepEval) | — | Threshold 0.7 · model: DeepSeek-R1 8B |
-| Faithfulness (DeepEval) | — | Threshold 0.7 · model: DeepSeek-R1 8B |
+| Routing accuracy (overall) | **95.4%** | 103/108 cases correctly routed |
+| Routing accuracy (cross-DB) | **95.0%** | 19/20 deliberately ambiguous cross-domain cases |
+| SQL keyword coverage (avg) | **88.6%** | Structural proxy — not semantic correctness |
+| Answer relevancy (DeepEval) | **80.8%** | Threshold 0.7 · evaluator: Mistral 7B · 102/108 scored |
+| Faithfulness (DeepEval) | **77.6%** | Threshold 0.7 · evaluator: Mistral 7B · 102/108 scored |
 
-**Dataset breakdown — 108 cases:**
+**Per-domain breakdown:**
 
-| Domain | Easy | Medium | Hard | Total |
-|---|---|---|---|---|
-| Health | 6 | 11 | 5 | 22 |
-| Finance | 6 | 11 | 5 | 22 |
-| Sales | 6 | 12 | 4 | 22 |
-| IoT | 6 | 12 | 4 | 22 |
-| Cross-DB routing | 2 | 9 | 9 | 20 |
-| **Total** | **26** | **55** | **27** | **108** |
+| Domain | Cases | Routing | SQL Coverage | Relevancy | Faithfulness |
+|---|---|---|---|---|---|
+| Health | 22 | 100.0% | 92.0% | 84.2% | 77.5% |
+| Finance | 22 | 95.5% | 84.3% | 88.3% | 80.8% |
+| Sales | 22 | 95.5% | 94.5% | 85.2% | 80.4% |
+| IoT | 22 | 90.9% | 86.3% | 74.5% | 77.5% |
+| Cross-DB Routing | 20 | 95.0% | 85.8% | 70.4% | 71.3% |
+| **Total / Avg** | **108** | **95.4%** | **88.6%** | **80.8%** | **77.6%** |
 
-> ⚠️ Scores reflect Llama 3 8B (inference model) judged by DeepSeek-R1 8B (evaluator). SQL keyword coverage is a structural proxy — a query can pass keyword coverage but return semantically wrong results on complex multi-join patterns. See [Limitations](#limitations).
+**Known agent errors (4 cases — DB-level failures after all retries, not routing failures):**
+
+| Case | Error |
+|---|---|
+| `F-021` | `column pf.payment_method does not exist` — column hallucination on `payment_failures` alias |
+| `S-017` | `date_part(unknown, integer) does not exist` — missing explicit type cast on integer year |
+| `I-019` | `SELECT DISTINCT … ORDER BY` expression not in select list |
+| `X-006` | `column pf.status does not exist` — same `payment_failures` hallucination in cross-DB case |
+
+> ⚠️ Scores reflect Llama 3 8B (inference model) judged by Mistral 7B (evaluator). SQL keyword coverage is a structural proxy. 102 of 108 cases were DeepEval-scored. 4 cases returned DB-level errors and produced no answer. 2 cases (`S-022`, `I-014`) persistently exceeded the evaluator model's token budget — recorded as skipped with null scores. See [EVALUATION_GUIDE.md](docs/EVALUATION_GUIDE.md) for full detail.
 
 ---
 
@@ -815,10 +911,9 @@ See [EVALUATION_GUIDE.md](EVALUATION_GUIDE.md) for the complete guide including 
 ## References
 
 - **Meta Llama 3 (8B)** — Meta AI (2024). [Introducing Meta Llama 3](https://ai.meta.com/blog/meta-llama-3/) — primary inference model for SQL generation and BI analysis
-- **DeepSeek-R1 (8B)** — Guo et al. (2025). [DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning](https://arxiv.org/abs/2501.12948) — used as the DeepEval evaluator model only
+- **Mistral (7B)** — Jiang et al. (2023). [Mistral 7B](https://arxiv.org/abs/2310.06825) — used as the DeepEval evaluator model only
 - **LangGraph** — Harrison Chase et al. [LangGraph: Build stateful, multi-actor applications with LLMs](https://github.com/langchain-ai/langgraph)
 - **DeepEval** — [Confident AI — LLM Evaluation Framework](https://github.com/confident-ai/deepeval)
-- **Chainlit** — [Chainlit: Build Conversational AI](https://github.com/Chainlit/chainlit)
 - **Text-to-SQL survey** — Qin et al. (2022). [A Survey on Text-to-SQL Parsing](https://arxiv.org/abs/2208.13629)
 - **Ollama** — [Run large language models locally](https://ollama.com)
 

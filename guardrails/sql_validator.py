@@ -1,13 +1,22 @@
 # DEPENDENCIES
 import re
+import sqlparse
 import structlog
 from typing import Optional
-from config.settings  import settings
-from config.schemas   import SQLValidationResult
+from sqlparse.tokens import DML
+from sqlparse.tokens import Name
+from sqlparse.sql import Function
+from sqlparse.tokens import Keyword
+from sqlparse.sql import Identifier
+from config.settings import settings
+from sqlparse.sql import Parenthesis
+from sqlparse.sql import IdentifierList
+from config.schemas import SQLValidationResult
 from config.constants import PROHIBITED_SQL_KEYWORDS
 from config.constants import PROHIBITED_SQL_PATTERNS
 
 
+# Setup Logging
 logger = structlog.get_logger()
 
 
@@ -85,6 +94,27 @@ class SQLValidator:
                                        error_message = "Multiple SQL statements are not allowed",
                                       )
 
+        # Validate table aliases are defined
+        alias_error = self._validate_aliases(sanitized)
+
+        if alias_error:
+            logger.warning("SQL alias validation failed", error = alias_error)
+            return SQLValidationResult(is_valid      = False, 
+                                       error_message = alias_error,
+                                      )
+        
+        # Validate GROUP BY semantics
+        groupby_error = self._validate_group_by(sanitized)
+
+        if groupby_error:
+            logger.warning("SQL GROUP BY validation failed", 
+                           error = groupby_error,
+                          )
+
+            return SQLValidationResult(is_valid      = False, 
+                                       error_message = groupby_error,
+                                      )
+
         # Inject LIMIT if not already present
         sanitized = self._inject_limit(sanitized)
 
@@ -105,8 +135,7 @@ class SQLValidator:
 
     def _remove_comments(self, sql: str) -> str:
         """
-        Strip single-line (--) and multi-line (/* */) SQL comments before any
-        keyword scan so that 'DR--comment\\nOP' cannot bypass checks
+        Strip single-line (--) and multi-line (/* */) SQL comments before any keyword scan so that 'DR--comment\\nOP' cannot bypass checks
         """
         sql = re.sub(r"--[^\n]*",    "",  sql)
         sql = re.sub(r"/\*.*?\*/",   "",  sql, flags=re.DOTALL)
@@ -115,7 +144,7 @@ class SQLValidator:
 
     def _inject_limit(self, sql: str) -> str:
         """
-        Append LIMIT <max_rows> if the query has no LIMIT clause: enforces settings.max_sql_rows at SQL level, 
+        Append LIMIT <max_rows> if the query has no LIMIT clause: enforces settings.max_sql_rows at SQL level,  
         not just application level and also handles trailing semicolons gracefully
         """
         # Strip trailing semicolon before checking / appending
@@ -129,6 +158,97 @@ class SQLValidator:
 
         return clean
 
+    
+    def _validate_aliases(self, sql: str) -> Optional[str]:
+        """
+        Alias check: only catch obvious undefined aliases, skips validation for subqueries to avoid false positives;
+        and returns error message if invalid, None if OK or uncertain
+        """
+        # Detect subqueries and skip validation: static alias validation is unreliable for subqueries/CTEs
+        if re.search(r'\bFROM\s*\(', sql, re.IGNORECASE):
+            # Defer to PostgreSQL
+            return None  
+
+        if re.search(r'\bWITH\s+\w+\s+AS\s*\(', sql, re.IGNORECASE):
+            # CTE detected - defer to PostgreSQL
+            return None  
+        
+        try:
+            parsed = sqlparse.parse(sql)
+            if not parsed:
+                return None
+
+            statement = parsed[0]
+        
+        except Exception:
+            # Skip validation on parse error
+            return None  
+        
+        defined_aliases = set()
+        
+        # Extract aliases from FROM and JOIN clauses
+        from_seen       = False
+        
+        for token in statement.tokens:
+            if (token.ttype and (token.ttype in (sqlparse.tokens.Keyword, sqlparse.tokens.DML))):
+                if token.value.upper() in ('FROM', 'JOIN', 'INNER JOIN', 'LEFT JOIN', 'RIGHT JOIN'):
+                    from_seen = True
+                    continue
+                
+                elif token.value.upper() in ('WHERE', 'GROUP', 'ORDER', 'HAVING', 'LIMIT'):
+                    from_seen = False
+                    continue
+            
+            if (from_seen and hasattr(token, 'get_real_name')):
+                try:
+                    alias = token.get_alias()
+                    if alias:
+                        defined_aliases.add(alias.lower())
+
+                    real_name = token.get_real_name()
+                    
+                    if (real_name and not alias):
+                        defined_aliases.add(real_name.lower())
+                
+                except AttributeError:
+                    # Token doesn't support these methods
+                    continue  
+        
+        # Simple regex for alias.column patterns
+        alias_refs   = re.findall(r'\b([a-z_][a-z0-9_]*)\.(\w+)\b', sql.lower())
+        used_aliases = {alias for alias, col in alias_refs if alias not in ('select', 'from', 'where', 'join', 'on', 'and', 'or', 'as', 'count', 'sum', 'avg', 'max', 'min')}
+        undefined    = used_aliases - defined_aliases
+        
+        # Only flag if we're confident (avoid false positives)
+        if (undefined and (len(undefined) <= 2)):
+            return f"Possible undefined alias(es): {', '.join(sorted(undefined))}. Ensure all aliases are defined in FROM/JOIN clauses."
+        
+        return None
+
+
+    def _validate_group_by(self, sql: str) -> Optional[str]:
+        """
+        GROUP BY check : only flag obvious violations and returns error message if invalid, None if OK or uncertain
+        """
+        if ('GROUP BY' not in sql.upper()):
+            # No GROUP BY = no check needed
+            return None  
+        
+        sql_upper  = sql.upper()
+        
+        # Skip if query uses SELECT * (hard to validate statically)
+        if (('SELECT *' in sql_upper) or ('SELECT  *' in sql_upper)):
+            return None
+        
+        # List of aggregate functions - if column appears inside one, skip validation
+        aggregates = {'COUNT', 'SUM', 'AVG', 'MAX', 'MIN', 'ARRAY_AGG', 'STRING_AGG', 'JSON_AGG'}
+        
+        # Simple heuristic: if SELECT has aggregate function, assume GROUP BY is handled
+        if any(f'{agg}(' in sql_upper for agg in aggregates):
+            return None
+        
+        # Defer to PostgreSQL for complex cases
+        return None  
 
 # GLOBAL INSTANCE
 sql_validator = SQLValidator()

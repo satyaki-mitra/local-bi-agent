@@ -1,0 +1,1211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LocalGenBI - Local Generative BI Agent</title>
+    <style>
+        /* (styles remain unchanged – same as your current file) */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: #0D1117;
+            color: #E6EDF3;
+            line-height: 1.6;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .app-container {
+            display: flex;
+            height: 100vh;
+        }
+
+        /* Sidebar Styles */
+        .sidebar {
+            width: 280px;
+            background-color: #161B22;
+            border-right: 1px solid #30363D;
+            display: flex;
+            flex-direction: column;
+            padding: 24px 16px;
+            overflow-y: auto;
+        }
+
+        .logo-area {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 32px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid #30363D;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #1F6FEB 0%, #00D4AA 100%);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 20px;
+            color: white;
+        }
+
+        .logo-text {
+            font-size: 18px;
+            font-weight: 600;
+            color: #E6EDF3;
+        }
+
+        .logo-sub {
+            font-size: 12px;
+            color: #8B949E;
+            margin-top: 2px;
+        }
+
+        .status-section {
+            margin-bottom: 24px;
+        }
+
+        .section-title {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #8B949E;
+            margin-bottom: 12px;
+        }
+
+        .db-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .db-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background-color: #21262D;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .db-status {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #3FB950;
+        }
+
+        .db-status.connected {
+            background-color: #3FB950;
+            box-shadow: 0 0 8px rgba(63, 185, 80, 0.4);
+        }
+
+        .system-status {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 12px;
+            background-color: #21262D;
+            border-radius: 6px;
+        }
+
+        .status-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 14px;
+        }
+
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .status-badge.online {
+            background-color: rgba(63, 185, 80, 0.2);
+            color: #3FB950;
+        }
+
+        .status-badge.active {
+            background-color: rgba(31, 111, 235, 0.2);
+            color: #1F6FEB;
+        }
+
+        .security-note {
+            margin-top: auto;
+            padding: 16px;
+            background-color: #21262D;
+            border-radius: 6px;
+            font-size: 13px;
+            color: #8B949E;
+            border-left: 3px solid #00D4AA;
+        }
+
+        /* Main Content Styles */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px 32px;
+            scroll-behavior: smooth;
+        }
+
+        /* Welcome message (no icon, no bubble) */
+        .welcome-message {
+            max-width: 800px;
+            margin: 40px auto 24px auto;
+            text-align: center;
+        }
+
+        .welcome-title {
+            font-size: 32px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            background: linear-gradient(135deg, #1F6FEB 0%, #00D4AA 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .welcome-text {
+            color: #8B949E;
+            font-size: 16px;
+            line-height: 1.6;
+        }
+
+        /* Starter chips */
+        .starter-chips {
+            max-width: 800px;
+            margin: 16px auto 24px auto;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .chip {
+            padding: 8px 16px;
+            background-color: rgba(0, 212, 170, 0.1);
+            border: 1px solid rgba(0, 212, 170, 0.3);
+            border-radius: 30px;
+            color: #00D4AA;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        .chip:hover {
+            background-color: rgba(0, 212, 170, 0.2);
+            border-color: #00D4AA;
+            transform: translateY(-1px);
+        }
+
+        /* Regular messages */
+        .message {
+            max-width: 800px;
+            margin: 0 auto 24px auto;
+            animation: fadeIn 0.3s ease;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .message-icon {
+            flex-shrink: 0;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background-color: #21262D;
+            border: 1px solid #30363D;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        .message-body {
+            flex: 1;
+            display: block;
+            min-width: 0;
+        }
+
+        .message-content {
+            padding: 16px 20px;
+            border-radius: 12px;
+            word-wrap: break-word;
+            width: 100%;
+            display: block;
+        }
+
+        .message-content > * {
+            display: block;
+            margin-bottom: 12px;
+        }
+
+        .message-content > :last-child {
+            margin-bottom: 0;
+        }
+
+        .user .message-content {
+            background-color: #1F6FEB;
+            color: white;
+        }
+
+        .assistant .message-content {
+            background-color: #21262D;
+            color: #E6EDF3;
+        }
+
+        /* Answer header chips */
+        .header-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 12px;
+            font-size: 12px;
+        }
+
+        .header-chip {
+            background-color: #1C2128;
+            padding: 4px 10px;
+            border-radius: 16px;
+            border: 1px solid #30363D;
+            color: #8B949E;
+        }
+
+        .header-chip.domain {
+            background-color: rgba(0, 212, 170, 0.1);
+            color: #00D4AA;
+            border-color: #00D4AA;
+        }
+
+        .header-chip.confidence-high {
+            background-color: rgba(63, 185, 80, 0.1);
+            color: #3FB950;
+        }
+
+        .header-chip.confidence-medium {
+            background-color: rgba(237, 165, 39, 0.1);
+            color: #EDA527;
+        }
+
+        .header-chip.confidence-low {
+            background-color: rgba(248, 81, 73, 0.1);
+            color: #F85149;
+        }
+
+        .header-chip.warning {
+            background-color: rgba(248, 81, 73, 0.1);
+            color: #F85149;
+        }
+
+        .header-chip.clean {
+            background-color: rgba(63, 185, 80, 0.1);
+            color: #3FB950;
+        }
+
+        /* Collapsible sections */
+        details {
+            width: 100%;
+            margin: 16px 0;
+            background-color: #161B22;
+            border: 1px solid #30363D;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        details summary {
+            padding: 12px 16px;
+            cursor: pointer;
+            color: #00D4AA;
+            font-weight: 500;
+            font-size: 14px;
+            background-color: #1C2128;
+            border-bottom: 1px solid #30363D;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        details summary::-webkit-details-marker {
+            display: none;
+        }
+
+        details summary::before {
+            content: '▶';
+            font-size: 12px;
+            color: #8B949E;
+            transition: transform 0.2s;
+        }
+
+        details[open] summary::before {
+            content: '▼';
+        }
+
+        details > div {
+            padding: 16px;
+        }
+
+        .sql-block {
+            background-color: #0D1117;
+            border-radius: 6px;
+            padding: 16px;
+            font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+            font-size: 13px;
+            border: 1px solid #30363D;
+            overflow-x: auto;
+            width: 100%;
+        }
+
+        .results-table {
+            width: 100%;
+            overflow-x: auto;
+            background-color: #161B22;
+            border-radius: 8px;
+            border: 1px solid #30363D;
+        }
+
+        .results-table table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        .results-table th {
+            text-align: left;
+            padding: 12px 16px;
+            background-color: #21262D;
+            color: #E6EDF3;
+            font-weight: 600;
+            border-bottom: 1px solid #30363D;
+        }
+
+        .results-table td {
+            padding: 10px 16px;
+            border-bottom: 1px solid #30363D;
+            color: #8B949E;
+        }
+
+        .results-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .metrics-grid {
+            width: 100%;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+            margin: 16px 0;
+        }
+
+        .metric-card {
+            background-color: #21262D;
+            padding: 16px;
+            border-radius: 8px;
+            border: 1px solid #30363D;
+        }
+
+        .metric-label {
+            font-size: 12px;
+            color: #8B949E;
+            margin-bottom: 4px;
+        }
+
+        .metric-value {
+            font-size: 20px;
+            font-weight: 600;
+            color: #E6EDF3;
+        }
+
+        .trace-list {
+            width: 100%;
+            list-style: none;
+            padding: 0;
+            counter-reset: step;
+        }
+
+        .trace-item {
+            font-size: 12px;
+            color: #8B949E;
+            padding: 4px 0 4px 24px;
+            border-left: 2px solid #30363D;
+            margin: 8px 0;
+            position: relative;
+        }
+
+        .trace-item::before {
+            content: counter(step) ".";
+            counter-increment: step;
+            position: absolute;
+            left: -8px;
+            top: 4px;
+            color: #00D4AA;
+            font-weight: bold;
+        }
+
+        .trace-item:last-child {
+            border-left-color: #00D4AA;
+        }
+
+        /* Image container for visualizations */
+        .viz-image {
+            max-width: 100%;
+            height: auto;
+            border-radius: 6px;
+            border: 1px solid #30363D;
+        }
+
+        /* Export icon */
+        .export-icon {
+            background: none;
+            border: none;
+            color: #8B949E;
+            cursor: pointer;
+            font-size: 14px;
+            margin-left: auto;
+            padding: 0 4px;
+            transition: color 0.2s;
+        }
+        .export-icon:hover {
+            color: #00D4AA;
+        }
+
+        /* Bottom action bar */
+        .action-bar {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+            justify-content: flex-end;
+        }
+        .action-btn {
+            background-color: #21262D;
+            border: 1px solid #30363D;
+            color: #8B949E;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .action-btn:hover {
+            background-color: #2D333B;
+            color: #E6EDF3;
+            border-color: #00D4AA;
+        }
+
+        .input-container {
+            padding: 24px 32px;
+            background-color: #161B22;
+            border-top: 1px solid #30363D;
+        }
+
+        .input-wrapper {
+            max-width: 800px;
+            margin: 0 auto;
+            display: flex;
+            gap: 12px;
+        }
+
+        #query-input {
+            flex: 1;
+            padding: 16px 20px;
+            background-color: #21262D;
+            border: 1px solid #30363D;
+            border-radius: 8px;
+            color: #E6EDF3;
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        #query-input:focus {
+            border-color: #1F6FEB;
+        }
+
+        #query-input::placeholder {
+            color: #6E7681;
+        }
+
+        #send-button {
+            padding: 16px 32px;
+            background: linear-gradient(135deg, #1F6FEB 0%, #00D4AA 100%);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-weight: 600;
+            font-size: 15px;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        #send-button:hover {
+            opacity: 0.9;
+        }
+
+        #send-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .loader {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #30363D;
+            border-radius: 50%;
+            border-top-color: #00D4AA;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .error-message {
+            background-color: rgba(248, 81, 73, 0.1);
+            border: 1px solid #F85149;
+            color: #F85149;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin: 16px 0;
+        }
+
+        #loading-message .message-body {
+            width: 100%;
+        }
+        #loading-message .message-content {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar (unchanged) -->
+        <div class="sidebar">
+            <div class="logo-area">
+                <div class="logo-icon">GB</div>
+                <div>
+                    <div class="logo-text">LocalGenBI</div>
+                    <div class="logo-sub">Local Generative BI</div>
+                </div>
+            </div>
+
+            <div class="status-section">
+                <div class="section-title">CONNECTED DATABASES</div>
+                <div class="db-list">
+                    <div class="db-item">
+                        <div class="db-status connected"></div>
+                        health_db
+                    </div>
+                    <div class="db-item">
+                        <div class="db-status connected"></div>
+                        finance_db
+                    </div>
+                    <div class="db-item">
+                        <div class="db-status connected"></div>
+                        sales_db
+                    </div>
+                    <div class="db-item">
+                        <div class="db-status connected"></div>
+                        iot_db
+                    </div>
+                </div>
+            </div>
+
+            <div class="status-section">
+                <div class="section-title">SYSTEM STATUS</div>
+                <div class="system-status">
+                    <div class="status-row">
+                        <span>Ollama (Llama 3)</span>
+                        <span class="status-badge online">Online</span>
+                    </div>
+                    <div class="status-row">
+                        <span>Guardrails</span>
+                        <span class="status-badge active">Active</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="security-note">
+                <strong>🔒 Local & Private</strong>
+                <p style="margin-top: 8px; font-size: 12px;">All processing happens locally. Your data never leaves your network.</p>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <div class="chat-container" id="chat-container">
+                <!-- Welcome message -->
+                <div class="welcome-message" id="welcome-message">
+                    <div class="welcome-title">Welcome to LocalGenBI</div>
+                    <div class="welcome-text">
+                        I am connected to your local PostgreSQL databases (Health, Finance, Sales, IoT).<br>
+                        What would you like to know?
+                    </div>
+                </div>
+                <!-- Starter chips will be inserted here by JavaScript -->
+            </div>
+
+            <div class="input-container">
+                <div class="input-wrapper">
+                    <input type="text" id="query-input" placeholder="Ask a question or type /help for commands" autocomplete="off">
+                    <button id="send-button">Send</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const API_BASE_URL = '/api';
+        
+        // State
+        let sessionId = localStorage.getItem('sessionId') || generateSessionId();
+        let isLoading = false;
+        let lastResult = null;
+
+        // Starter chips
+        const STARTER_CHIPS = [
+            { label: "💊 Patient Overview", query: "How many patients are in the database and what is the average age by gender?" },
+            { label: "💰 Revenue by Month", query: "Show me total transaction revenue grouped by month for 2024." },
+            { label: "📈 Top Sales Reps", query: "Who are the top 10 sales representatives by total opportunity value closed?" },
+            { label: "❤️ IoT Heart Rate", query: "What is the average heart rate per user, and which user has the highest average?" },
+            { label: "🔗 Health + Finance", query: "Show average claim amount per diagnosis code alongside the top transaction amounts." },
+            { label: "🔄 Subscription Churn", query: "How many subscriptions were cancelled in 2024 and what was the monthly churn rate?" },
+        ];
+
+        const DOMAIN_ICONS = { health: "💊", finance: "💰", sales: "📈", iot: "❤️" };
+        const EXAMPLE_QUERIES = {
+            health: [
+                "How many patients are in the database?",
+                "What is the average age by gender?",
+                "Which diagnosis codes have the highest total claim amount?",
+                "Show monthly claims trend for 2024."
+            ],
+            finance: [
+                "What is total revenue by month for 2024?",
+                "How many subscriptions were cancelled and what is the churn rate?",
+                "Show average transaction amount by payment method.",
+                "Which customers have the highest total spend?"
+            ],
+            sales: [
+                "Who are the top 10 sales reps by total opportunity value?",
+                "What is our lead-to-opportunity conversion rate?",
+                "Show pipeline value by stage.",
+                "How many new leads were created per month in 2024?"
+            ],
+            iot: [
+                "What is the average daily step count across all users?",
+                "Which users have an average heart rate above 80 bpm?",
+                "Show the trend in average sleep hours over 2024.",
+                "What is the correlation between step count and sleep quality?"
+            ]
+        };
+
+        localStorage.setItem('sessionId', sessionId);
+
+        function generateSessionId() {
+            return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function formatCurrency(value) {
+            if (value === null || value === undefined || isNaN(value)) return '$0.00';
+            return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+        }
+
+        function renderHeaderChips(result) {
+            const chips = [];
+            const dbBadge = buildDomainBadge(result);
+            if (dbBadge) chips.push(`<span class="header-chip domain">${dbBadge}</span>`);
+
+            const execMs = result.execution_time_ms || 0;
+            chips.push(`<span class="header-chip">⏱ ${(execMs/1000).toFixed(2)}s</span>`);
+
+            const rowCount = result.data ? result.data.length : 0;
+            if (rowCount > 0) chips.push(`<span class="header-chip">📊 ${rowCount.toLocaleString()} rows</span>`);
+
+            const confidence = result.query_confidence;
+            if (confidence !== undefined) {
+                let confClass = 'confidence-high';
+                if (confidence < 0.5) confClass = 'confidence-low';
+                else if (confidence < 0.8) confClass = 'confidence-medium';
+                chips.push(`<span class="header-chip ${confClass}">${confidence >= 0.8 ? '🟢' : (confidence >= 0.5 ? '🟡' : '🔴')} ${Math.round(confidence*100)}%</span>`);
+            }
+
+            const retryCount = result.retry_count || 0;
+            if (retryCount > 0) chips.push(`<span class="header-chip">🔁 ${retryCount} ${retryCount === 1 ? 'retry' : 'retries'}</span>`);
+
+            const errors = result.errors || [];
+            if (errors.length > 0) chips.push(`<span class="header-chip warning">⚠️ warnings</span>`);
+            else chips.push(`<span class="header-chip clean">✅ clean</span>`);
+
+            return `<div class="header-chips">${chips.join('')}</div>`;
+        }
+
+        function buildDomainBadge(result) {
+            const sqlList = result.sql_executed || [];
+            const isCrossDb = result.is_cross_db || false;
+            const databases = result.databases_queried || [];
+
+            if (isCrossDb && databases.length >= 2) {
+                return `🔗 ${databases[0].toUpperCase()} + ${databases[1].toUpperCase()} DB`;
+            }
+            if (sqlList.length > 0) {
+                const sql = sqlList[0].toUpperCase();
+                if (sql.includes('OPPORTUNITIES') || sql.includes('LEADS') || sql.includes('SALES_REPS')) return 'SALES DB';
+                if (sql.includes('TRANSACTIONS') || sql.includes('SUBSCRIPTIONS') || sql.includes('PAYMENT_FAILURES')) return 'FINANCE DB';
+                if (sql.includes('CLAIMS') || sql.includes('PROCEDURES') || sql.includes('PATIENT_HISTORY')) return 'HEALTH DB';
+                if (sql.includes('DAILY_STEPS') || sql.includes('HEART_RATE_AVG') || sql.includes('SLEEP_HOURS')) return 'IOT DB';
+            }
+            return '';
+        }
+
+        function renderTable(data) {
+            if (!data || data.length === 0) return '<p>No results to display</p>';
+            const columns = Object.keys(data[0]);
+            let html = '<div class="results-table"><table><thead><tr>';
+            columns.forEach(col => {
+                html += `<th>${escapeHtml(col.toUpperCase())}</th>`;
+            });
+            html += '</tr></thead><tbody>';
+            data.forEach(row => {
+                html += '<tr>';
+                columns.forEach(col => {
+                    let value = row[col];
+                    if (typeof value === 'number') {
+                        if (col.toLowerCase().includes('revenue') || col.toLowerCase().includes('amount') || col.toLowerCase().includes('sales') || col.toLowerCase().includes('value')) {
+                            value = formatCurrency(value);
+                        } else {
+                            value = value.toLocaleString();
+                        }
+                    } else if (value === null || value === undefined) {
+                        value = '-';
+                    }
+                    html += `<td>${escapeHtml(String(value))}</td>`;
+                });
+                html += '</tr>';
+            });
+            html += '</tbody></table></div>';
+            return html;
+        }
+
+        function renderMetrics(metrics) {
+            if (!metrics || Object.keys(metrics).length === 0) return '';
+            let html = '<div class="metrics-grid">';
+            const priorityMetrics = ['row_count', 'avg_amount', 'total_amount', 'max_amount', 'min_amount'];
+            const sortedKeys = [
+                ...priorityMetrics.filter(key => metrics[key] !== undefined),
+                ...Object.keys(metrics).filter(key => !priorityMetrics.includes(key))
+            ];
+            sortedKeys.forEach(key => {
+                if (key === 'row_count') {
+                    html += `<div class="metric-card"><div class="metric-label">TOTAL ROWS</div><div class="metric-value">${metrics[key].toLocaleString()}</div></div>`;
+                } else if (key.includes('avg')) {
+                    const value = typeof metrics[key] === 'number' ? formatCurrency(metrics[key]) : metrics[key];
+                    html += `<div class="metric-card"><div class="metric-label">AVERAGE</div><div class="metric-value">${value}</div></div>`;
+                } else if (key.includes('total')) {
+                    const value = typeof metrics[key] === 'number' ? formatCurrency(metrics[key]) : metrics[key];
+                    html += `<div class="metric-card"><div class="metric-label">TOTAL</div><div class="metric-value">${value}</div></div>`;
+                } else if (key.includes('max')) {
+                    const value = typeof metrics[key] === 'number' ? formatCurrency(metrics[key]) : metrics[key];
+                    html += `<div class="metric-card"><div class="metric-label">MAXIMUM</div><div class="metric-value">${value}</div></div>`;
+                } else if (key.includes('min')) {
+                    const value = typeof metrics[key] === 'number' ? formatCurrency(metrics[key]) : metrics[key];
+                    html += `<div class="metric-card"><div class="metric-label">MINIMUM</div><div class="metric-value">${value}</div></div>`;
+                } else {
+                    html += `<div class="metric-card"><div class="metric-label">${key.replace(/_/g, ' ').toUpperCase()}</div><div class="metric-value">${metrics[key]}</div></div>`;
+                }
+            });
+            html += '</div>';
+            return html;
+        }
+
+        // Heuristic to hide the results table for single-row aggregate queries
+        function isAggregateResult(data) {
+            if (!data.data || data.data.length !== 1) return false;
+            const row = data.data[0];
+            const keys = Object.keys(row);
+            if (keys.length !== 1) return false;
+            const col = keys[0].toLowerCase();
+            const aggregateKeywords = ['sum', 'count', 'avg', 'average', 'total', 'min', 'max', 'aggregate'];
+            return aggregateKeywords.some(keyword => col.includes(keyword));
+        }
+
+        // Download export function
+        window.downloadResult = async function(format) {
+            if (!lastResult) {
+                alert('No result to export. Run a query first.');
+                return;
+            }
+            const payload = {
+                query: lastResult.query || '',
+                answer: lastResult.answer || '',
+                data: lastResult.data || [],
+                sql_queries: lastResult.sql_executed || [],
+                reasoning_trace: lastResult.reasoning_trace || []
+            };
+            try {
+                const response = await fetch(`${API_BASE_URL}/export/${format}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (!response.ok) {
+                    const error = await response.text();
+                    throw new Error(`Export failed: ${error}`);
+                }
+                const disposition = response.headers.get('Content-Disposition');
+                let filename = `export.${format}`;
+                if (disposition && disposition.includes('filename=')) {
+                    filename = disposition.split('filename=')[1].replace(/"/g, '');
+                }
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+            } catch (error) {
+                console.error('Export error:', error);
+                alert(error.message);
+            }
+        };
+
+        // Add message to chat
+        function addMessage(content, type, data = {}) {
+            const container = document.getElementById('chat-container');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            
+            if (type !== 'system') {
+                const welcome = document.getElementById('welcome-message');
+                if (welcome) welcome.style.display = 'none';
+                const chips = document.querySelector('.starter-chips');
+                if (chips) chips.style.display = 'none';
+            }
+            
+            const iconSpan = document.createElement('div');
+            iconSpan.className = 'message-icon';
+            iconSpan.textContent = type === 'user' ? '👤' : '🤖';
+            messageDiv.appendChild(iconSpan);
+            
+            const bodyDiv = document.createElement('div');
+            bodyDiv.className = 'message-body';
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            
+            if (type === 'assistant') {
+                const headerHtml = renderHeaderChips(data);
+                contentDiv.innerHTML = headerHtml + escapeHtml(content);
+                bodyDiv.appendChild(contentDiv);
+                
+                // SQL block (open)
+                if (data.sql_executed && data.sql_executed.length > 0) {
+                    const details = document.createElement('details');
+                    details.setAttribute('open', ''); // expanded by default
+                    details.innerHTML = `
+                        <summary>🔍 Generated SQL</summary>
+                        <div>
+                            <div class="sql-block">
+                                <pre>${escapeHtml(data.sql_executed.join('\n'))}</pre>
+                            </div>
+                        </div>
+                    `;
+                    bodyDiv.appendChild(details);
+                }
+                
+                // Visualization block (open)
+                if (data.visualization && data.visualization.base64_image) {
+                    const chartDiv = document.createElement('details');
+                    chartDiv.setAttribute('open', ''); // expanded by default
+                    chartDiv.innerHTML = `
+                        <summary style="display: flex; align-items: center;">
+                            <span>📊 Visualization (${data.visualization.chart_type || 'auto'})</span>
+                            <button class="export-icon" onclick="downloadResult('png'); event.stopPropagation();" title="Download as PNG">⬇️</button>
+                        </summary>
+                        <div style="text-align: center;">
+                            <img class="viz-image" src="${data.visualization.base64_image}" alt="Visualization">
+                        </div>
+                    `;
+                    bodyDiv.appendChild(chartDiv);
+                }
+                
+                // Metrics (Data Analysis) (open)
+                if (data.metrics && Object.keys(data.metrics).length > 0) {
+                    const metricsDetails = document.createElement('details');
+                    metricsDetails.setAttribute('open', ''); // expanded by default
+                    metricsDetails.innerHTML = `
+                        <summary>📈 Data Analysis</summary>
+                        <div>
+                            ${renderMetrics(data.metrics)}
+                        </div>
+                    `;
+                    bodyDiv.appendChild(metricsDetails);
+                }
+                
+                // Results Table (closed by default) – hide if it's a single-row aggregate
+                if (data.data && data.data.length > 0 && !isAggregateResult(data)) {
+                    const tableDetails = document.createElement('details');
+                    // no 'open' attribute -> collapsed
+                    tableDetails.innerHTML = `
+                        <summary style="display: flex; align-items: center;">
+                            <span>📋 Results (${data.data.length} rows)</span>
+                            <button class="export-icon" onclick="downloadResult('csv'); event.stopPropagation();" title="Download as CSV">⬇️</button>
+                        </summary>
+                        <div>
+                            ${renderTable(data.data)}
+                        </div>
+                    `;
+                    bodyDiv.appendChild(tableDetails);
+                }
+                
+                // Reasoning Trace (closed by default)
+                if (data.reasoning_trace && data.reasoning_trace.length > 0) {
+                    const traceDetails = document.createElement('details');
+                    // no 'open' -> collapsed
+                    let traceHtml = '<div class="trace-list">';
+                    data.reasoning_trace.forEach(trace => {
+                        traceHtml += `<div class="trace-item">${escapeHtml(trace)}</div>`;
+                    });
+                    traceHtml += '</div>';
+                    traceDetails.innerHTML = `
+                        <summary>🔍 Pipeline Trace</summary>
+                        <div>${traceHtml}</div>
+                    `;
+                    bodyDiv.appendChild(traceDetails);
+                }
+                
+                // Errors
+                if (data.errors && data.errors.length > 0) {
+                    const errorDiv = document.createElement('div');
+                    errorDiv.className = 'error-message';
+                    errorDiv.textContent = data.errors.join(', ');
+                    bodyDiv.appendChild(errorDiv);
+                }
+                
+                // Conditionally add action bar only if there is something to export
+                const hasExportable = (data.data && data.data.length > 0) || 
+                                      (data.metrics && Object.keys(data.metrics).length > 0) || 
+                                      data.visualization;
+                if (hasExportable) {
+                    const actionBar = document.createElement('div');
+                    actionBar.className = 'action-bar';
+                    // Analysis report only appears if data exists
+                    const analysisButton = (data.data && data.data.length > 0) 
+                        ? '<button class="action-btn" onclick="downloadResult(\'analysis\')">⬇ Analysis Report</button>' 
+                        : '';
+                    actionBar.innerHTML = `
+                        <button class="action-btn" onclick="downloadResult('json')">⬇ JSON (Full Result)</button>
+                        ${analysisButton}
+                    `;
+                    bodyDiv.appendChild(actionBar);
+                }
+                
+            } else {
+                // User message
+                contentDiv.textContent = content;
+                bodyDiv.appendChild(contentDiv);
+            }
+            
+            messageDiv.appendChild(bodyDiv);
+            container.appendChild(messageDiv);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // Send query to backend
+        async function sendQuery() {
+            const input = document.getElementById('query-input');
+            const query = input.value.trim();
+            
+            if (!query || isLoading) return;
+            
+            // Simple command handling (expanded for demo)
+            if (query.startsWith('/')) {
+                const parts = query.slice(1).split(' ');
+                const cmd = parts[0].toLowerCase();
+                const args = parts.slice(1);
+                addMessage(query, 'user');
+                input.value = '';
+                if (cmd === 'help' || cmd === '?') {
+                    addMessage("Available commands: /help, /clear, /history, /stats, /examples, /download <format>", 'assistant', {});
+                } else if (cmd === 'clear') {
+                    // In a real app, call DELETE endpoint
+                    lastResult = null;
+                    addMessage('🗑 Session cleared (mock).', 'assistant', {});
+                } else {
+                    addMessage(`Unknown command: ${cmd}`, 'assistant', {});
+                }
+                return;
+            }
+            
+            addMessage(query, 'user');
+            input.value = '';
+            
+            isLoading = true;
+            const sendButton = document.getElementById('send-button');
+            sendButton.disabled = true;
+            sendButton.innerHTML = '<span class="loader"></span>Processing...';
+            
+            const container = document.getElementById('chat-container');
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'message assistant';
+            loadingDiv.id = 'loading-message';
+            
+            const iconSpan = document.createElement('div');
+            iconSpan.className = 'message-icon';
+            iconSpan.textContent = '🤖';
+            loadingDiv.appendChild(iconSpan);
+            
+            const bodyDiv = document.createElement('div');
+            bodyDiv.className = 'message-body';
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            contentDiv.innerHTML = '<span class="loader"></span> Analyzing your question...';
+            bodyDiv.appendChild(contentDiv);
+            loadingDiv.appendChild(bodyDiv);
+            
+            container.appendChild(loadingDiv);
+            container.scrollTop = container.scrollHeight;
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/query`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query, session_id: sessionId })
+                });
+                
+                document.getElementById('loading-message')?.remove();
+                
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.detail || `HTTP ${response.status}`);
+                }
+                
+                const data = await response.json();
+                lastResult = data;
+                addMessage(data.answer, 'assistant', data);
+                
+            } catch (error) {
+                document.getElementById('loading-message')?.remove();
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'message assistant';
+                errorDiv.innerHTML = `<div class="message-icon">🤖</div><div class="message-body"><div class="message-content error-message">Error: ${escapeHtml(error.message)}</div></div>`;
+                container.appendChild(errorDiv);
+                container.scrollTop = container.scrollHeight;
+                console.error('Query error:', error);
+            } finally {
+                isLoading = false;
+                sendButton.disabled = false;
+                sendButton.innerHTML = 'Send';
+            }
+        }
+
+        // Insert starter chips
+        function insertStarterChips() {
+            const container = document.getElementById('chat-container');
+            const chipsDiv = document.createElement('div');
+            chipsDiv.className = 'starter-chips';
+            STARTER_CHIPS.forEach(chip => {
+                const chipEl = document.createElement('span');
+                chipEl.className = 'chip';
+                chipEl.textContent = chip.label;
+                chipEl.onclick = () => {
+                    document.getElementById('query-input').value = chip.query;
+                    sendQuery();
+                };
+                chipsDiv.appendChild(chipEl);
+            });
+            const welcome = document.getElementById('welcome-message');
+            if (welcome) {
+                welcome.after(chipsDiv);
+            } else {
+                container.appendChild(chipsDiv);
+            }
+        }
+
+        // Check backend health on load
+        async function checkHealth() {
+            try {
+                const response = await fetch(`/health`);
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('Backend is healthy:', data);
+                }
+            } catch (error) {
+                console.warn('Backend health check failed:', error);
+                const container = document.getElementById('chat-container');
+                const warningDiv = document.createElement('div');
+                warningDiv.className = 'message assistant';
+                warningDiv.innerHTML = `
+                    <div class="message-icon">🤖</div>
+                    <div class="message-body"><div class="message-content" style="background-color: rgba(237, 165, 39, 0.1); border: 1px solid #EDA527;">
+                        ⚠️ Cannot connect to backend. Please ensure the server is running.
+                    </div></div>
+                `;
+                container.appendChild(warningDiv);
+            }
+        }
+
+        // Initialize
+        window.onload = () => {
+            insertStarterChips();
+            checkHealth();
+        };
+
+        // Event Listeners
+        document.getElementById('send-button').addEventListener('click', sendQuery);
+        document.getElementById('query-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendQuery();
+            }
+        });
+    </script>
+</body>
+</html>
